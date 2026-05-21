@@ -169,9 +169,11 @@ func (s *Switcher) activateGlobal(p *Profile) error {
 }
 
 func (s *Switcher) activateLocal(p *Profile) error {
-	// Apply to local git config (errors are non-fatal for local scope since
-	// applyGitConfig continues on individual failures for --local).
-	s.applyGitConfig(p, "--local")
+	// Apply to local git config. Critical fields (user.name, user.email) must
+	// succeed; other fields are best-effort.
+	if err := s.applyGitConfig(p, "--local"); err != nil {
+		return fmt.Errorf("applying git config: %w", err)
+	}
 
 	// Write .gcm-profile marker file
 	cwd, err := swGetwdFn()
@@ -194,9 +196,12 @@ func (s *Switcher) activateSession(p *Profile) error {
 		return fmt.Errorf("writing session marker: %w", err)
 	}
 
-	// Also set git config --local so git commands use the correct identity
-	// (errors are non-fatal for --local scope).
-	s.applyGitConfig(p, "--local")
+	// Apply git config --local so git commands use the correct identity.
+	// Critical fields (user.name, user.email) must succeed; if they fail the
+	// user's commits would silently use the wrong identity.
+	if err := s.applyGitConfig(p, "--local"); err != nil {
+		return fmt.Errorf("applying git config: %w", err)
+	}
 	return nil
 }
 
@@ -247,6 +252,14 @@ func (s *Switcher) findGitDir() string {
 		dir = filepath.Join(cwd, dir)
 	}
 	return dir
+}
+
+// criticalGitConfigKeys are the fields that MUST be applied successfully for
+// a profile activation to be meaningful. If these fail, the user's commits
+// will use the wrong identity — a silent correctness bug.
+var criticalGitConfigKeys = map[string]bool{
+	"user.name":  true,
+	"user.email": true,
 }
 
 func (s *Switcher) applyGitConfig(p *Profile, scope string) error {
@@ -317,6 +330,8 @@ func (s *Switcher) applyGitConfig(p *Profile, scope string) error {
 	}
 	sort.Strings(keys)
 
+	var criticalErrors []string
+
 	for _, key := range keys {
 		val := configs[key]
 		args := []string{"config", scope, key, val}
@@ -324,16 +339,30 @@ func (s *Switcher) applyGitConfig(p *Profile, scope string) error {
 		cmd := exec.CommandContext(ctx, gitCmd, args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			cancel()
-			s.log.Debug("git config failed",
-				logger.F("key", key),
-				logger.F("output", strings.TrimSpace(string(out))))
-			// Don't fail on individual config errors (e.g., not in a git repo)
-			if scope == "--local" {
+			output := strings.TrimSpace(string(out))
+
+			if criticalGitConfigKeys[key] {
+				// Critical field failed — this will cause wrong identity on commits.
+				s.log.Warn("Failed to set git config (critical)",
+					logger.F("key", key),
+					logger.F("scope", scope),
+					logger.F("output", output))
+				criticalErrors = append(criticalErrors, fmt.Sprintf("%s: %v", key, err))
+			} else if scope == "--local" {
+				// Non-critical field in local scope — log and continue.
+				s.log.Debug("git config failed (non-critical, skipping)",
+					logger.F("key", key),
+					logger.F("output", output))
 				continue
+			} else {
+				return fmt.Errorf("setting %s: %w", key, err)
 			}
-			return fmt.Errorf("setting %s: %w", key, err)
 		}
 		cancel()
+	}
+
+	if len(criticalErrors) > 0 {
+		return fmt.Errorf("failed to apply critical git config: %s", strings.Join(criticalErrors, "; "))
 	}
 
 	// Load SSH key to agent if configured

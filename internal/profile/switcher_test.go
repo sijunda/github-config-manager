@@ -132,18 +132,27 @@ func TestActivate_NotFoundProfile(t *testing.T) {
 }
 
 func TestActivate_LocalScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
 	sw, mgr, cfg := newTestSwitcher(t)
 	_ = mgr.Create(validProfile("localtest"))
 
-	// Change to temp dir so the .gcm-profile is written there
-	origDir, _ := os.Getwd()
+	// Create a git repo so git config --local works
 	tmpDir := t.TempDir()
+	cmd := exec.Command("git", "init", tmpDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chdir(origDir) })
 
-	// Activate local scope (git config may fail if not in a git repo, but that's ok)
 	err := sw.Activate("localtest", ScopeLocal)
 	if err != nil {
 		t.Fatalf("Activate local: %v", err)
@@ -188,11 +197,19 @@ func TestActivate_GlobalScope(t *testing.T) {
 }
 
 func TestActivate_SessionScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
 	sw, mgr, _ := newTestSwitcher(t)
 
-	// Create a git repo for session scope
+	// Create a real git repo for session scope
 	gitDir := t.TempDir()
-	os.MkdirAll(filepath.Join(gitDir, ".git"), 0o755)
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 
 	origDir, _ := os.Getwd()
 	os.Chdir(gitDir)
@@ -201,8 +218,9 @@ func TestActivate_SessionScope(t *testing.T) {
 	mgr.Create(validProfile("sessiontest"))
 
 	err := sw.Activate("sessiontest", ScopeSession)
-	// May fail if git isn't configured properly, but should at least try
-	_ = err
+	if err != nil {
+		t.Fatalf("Activate session: %v", err)
+	}
 }
 
 func TestActivate_NotFound(t *testing.T) {
@@ -485,18 +503,27 @@ func TestActivate_GlobalScope_AllOptionalFields(t *testing.T) {
 }
 
 func TestActivateLocal_UnwritableDir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
 	sw, mgr, _ := newTestSwitcher(t)
 	mgr.Create(validProfile("unwritable"))
 
-	// Create a read-only directory, chdir into it
+	// Create a git repo, then make the dir read-only so .gcm-profile write fails.
 	roDir := filepath.Join(t.TempDir(), "readonly")
 	os.MkdirAll(roDir, 0o755)
+	cmd := exec.Command("git", "init", roDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 
 	origDir, _ := os.Getwd()
 	os.Chdir(roDir)
 	defer os.Chdir(origDir)
 
-	// Make dir read-only so WriteFile fails
+	// Make dir read-only so WriteFile fails (but .git/ remains writable)
 	os.Chmod(roDir, 0o555)
 	defer os.Chmod(roDir, 0o755)
 
@@ -566,11 +593,14 @@ func TestActivate_SessionScope_NotInGitRepo(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(origDir)
 
-	// Session scope applies --local git config; should not hard-fail
-	// (individual config errors with --local are skipped)
+	// Session scope requires writing a session marker inside .git/;
+	// if not in a git repo, writeSessionMarker fails.
 	err := sw.Activate("sessionfail", ScopeSession)
-	// May or may not error depending on git behavior
-	_ = err
+	// Should error because not in a git repo (cannot write session marker
+	// or apply critical git config).
+	if err == nil {
+		t.Fatal("expected error when activating session outside a git repo")
+	}
 }
 
 func TestActivate_LocalScope_WriteFailure(t *testing.T) {
@@ -829,17 +859,30 @@ func TestActivate_GlobalScope_ConfigSaveError(t *testing.T) {
 }
 
 func TestActivate_LocalScope_CwdUnwritable(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
 	sw, mgr, _ := newTestSwitcher(t)
 	mgr.Create(validProfile("localfail"))
 
-	// Change to a read-only directory so WriteFile fails
-	roDir := t.TempDir()
+	// Create a git repo first, then make it read-only so WriteFile fails
+	// but git config can still succeed (git stores config inside .git/).
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
 	origDir, _ := os.Getwd()
-	os.Chdir(roDir)
-	os.Chmod(roDir, 0o555)
+	os.Chdir(gitDir)
+	// Make the directory read-only so .gcm-profile write fails,
+	// but leave .git/ writable so git config --local works.
+	os.Chmod(gitDir, 0o555)
 	t.Cleanup(func() {
+		os.Chmod(gitDir, 0o755)
 		os.Chdir(origDir)
-		os.Chmod(roDir, 0o755)
 	})
 
 	err := sw.Activate("localfail", ScopeLocal)
@@ -863,16 +906,13 @@ func TestActivate_LocalScope_GitConfigFails(t *testing.T) {
 
 	cfg.Advanced.GitCommand = "/nonexistent/git-binary"
 
-	// This should succeed because activateLocal catches the git error and continues
+	// Critical fields (user.name, user.email) will fail — activation should error
 	err := sw.Activate("nogit", ScopeLocal)
-	if err != nil {
-		t.Fatalf("Activate: %v", err)
+	if err == nil {
+		t.Fatal("expected error when critical git config fields fail")
 	}
-
-	// The .gcm-profile file should still be written
-	data, _ := os.ReadFile(filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile))
-	if string(data) != "nogit\n" {
-		t.Errorf("project file = %q, want %q", string(data), "nogit\n")
+	if !strings.Contains(err.Error(), "failed to apply critical git config") {
+		t.Errorf("error = %q, want 'failed to apply critical git config'", err)
 	}
 }
 
@@ -959,10 +999,15 @@ func TestActivateLocal_GetwdError(t *testing.T) {
 	sw, mgr, _ := newTestSwitcher(t)
 	mgr.Create(validProfile("work"))
 
-	// chdir to a non-git dir so applyGitConfig fails (which is ok) then Getwd fails
-	tmpDir := t.TempDir()
+	// Create a git repo so applyGitConfig succeeds, then hook Getwd to fail
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
+	os.Chdir(gitDir)
 	defer os.Chdir(origDir)
 
 	orig := swGetwdFn
@@ -983,9 +1028,15 @@ func TestActivateLocal_WriteFileError(t *testing.T) {
 	sw, mgr, _ := newTestSwitcher(t)
 	mgr.Create(validProfile("work"))
 
-	tmpDir := t.TempDir()
+	// Create a git repo so applyGitConfig succeeds, then hook WriteFile to fail
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
+	os.Chdir(gitDir)
 	defer os.Chdir(origDir)
 
 	orig := swWriteFileFn
@@ -1196,10 +1247,15 @@ func TestActivate_IncrementUsageError(t *testing.T) {
 	sw, mgr, _ := newTestSwitcher(t)
 	mgr.Create(validProfile("work"))
 
-	// chdir to a non-git temp dir (activateLocal will fail to set git config but that's ok)
-	tmpDir := t.TempDir()
+	// Create a git repo so applyGitConfig succeeds for critical fields
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
 	origDir, _ := os.Getwd()
-	os.Chdir(tmpDir)
+	os.Chdir(gitDir)
 	defer os.Chdir(origDir)
 
 	// Break profileAbsFn AFTER activation but before IncrementUsage.
@@ -1207,8 +1263,8 @@ func TestActivate_IncrementUsageError(t *testing.T) {
 	origAbs := profileAbsFn
 	profileAbsFn = func(path string) (string, error) {
 		callCount++
-		// Let the first 2 calls succeed (Activate->Get->profilePath)
-		if callCount > 2 {
+		// Let the first calls succeed (Activate->Get->profilePath, applyGitConfig, etc.)
+		if callCount > 4 {
 			return "", errors.New("abs error")
 		}
 		return origAbs(path)
@@ -1236,11 +1292,14 @@ func TestActivateLocal_ApplyGitConfigError(t *testing.T) {
 	os.Chdir(tmpDir)
 	defer os.Chdir(origDir)
 
-	// activateLocal should still succeed (just logs debug message)
+	// activateLocal should now fail because critical fields (user.name, user.email) cannot be set
 	p, _ := mgr.Get("work")
 	err := sw.activateLocal(p)
-	if err != nil {
-		t.Fatalf("activateLocal should succeed even when git config fails, got: %v", err)
+	if err == nil {
+		t.Fatal("activateLocal should fail when critical git config fields cannot be set")
+	}
+	if !strings.Contains(err.Error(), "failed to apply critical git config") {
+		t.Errorf("error = %q, want 'failed to apply critical git config'", err)
 	}
 }
 
@@ -1272,9 +1331,12 @@ func TestActivateSession_ApplyGitConfigErrorAfterMarker(t *testing.T) {
 
 	p, _ := mgr.Get("work")
 	err := sw.activateSession(p)
-	// Should succeed because applyGitConfig error is just a warning
-	if err != nil {
-		t.Fatalf("activateSession should succeed even when git config fails, got: %v", err)
+	// Should now fail because critical git config fields cannot be set
+	if err == nil {
+		t.Fatal("activateSession should fail when critical git config fields cannot be set")
+	}
+	if !strings.Contains(err.Error(), "failed to apply critical git config") {
+		t.Errorf("error = %q, want 'failed to apply critical git config'", err)
 	}
 }
 
