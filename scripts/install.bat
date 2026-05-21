@@ -192,7 +192,7 @@ if not "%SPECIFIC_VERSION%"=="" (
 )
 
 REM Try to get latest version using PowerShell
-for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/justjundana/github-config-manager/releases/latest' -TimeoutSec 30).tag_name" 2^>nul') do set "LATEST_VERSION=%%i"
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/sijunda/github-config-manager/releases/latest' -TimeoutSec 30).tag_name" 2^>nul') do set "LATEST_VERSION=%%i"
 
 if "%LATEST_VERSION%"=="" (
     call :print_error "Failed to get latest version information"
@@ -275,7 +275,7 @@ goto :eof
 :download_binary
 call :print_step "Downloading gcm %LATEST_VERSION% for %PLATFORM%..."
 
-set "DOWNLOAD_URL=https://github.com/justjundana/github-config-manager/releases/download/%LATEST_VERSION%/gcm-%PLATFORM_OS%-%PLATFORM_ARCH%.exe"
+set "DOWNLOAD_URL=https://github.com/sijunda/github-config-manager/releases/download/%LATEST_VERSION%/gcm-%PLATFORM_OS%-%PLATFORM_ARCH%.exe"
 set "BINARY_PATH=%INSTALL_DIR%\gcm.exe"
 
 call :print_info "Download URL: %DOWNLOAD_URL%"
