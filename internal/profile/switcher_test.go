@@ -916,6 +916,77 @@ func TestActivate_LocalScope_GitConfigFails(t *testing.T) {
 	}
 }
 
+func TestActivate_LocalScope_NonCriticalFieldSkipped(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Create a profile with non-critical fields
+	p := &Profile{
+		Name: "noncrit",
+		Git: GitConfig{
+			User: GitUser{Name: "Test", Email: "test@example.com"},
+			Core: GitCore{Editor: "vim"},
+		},
+	}
+	mgr.Create(p)
+
+	// Create a git repo
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Create a wrapper script that succeeds for user.name/user.email but fails for core.editor
+	script := filepath.Join(t.TempDir(), "fakegit.sh")
+	content := "#!/bin/sh\nfor arg in \"$@\"; do\n  case \"$arg\" in core.editor) exit 1;; esac\ndone\nexec git \"$@\"\n"
+	os.WriteFile(script, []byte(content), 0755)
+	cfg.Advanced.GitCommand = script
+
+	// Activate in local scope — should succeed (non-critical failure is skipped)
+	err := sw.Activate("noncrit", ScopeLocal)
+	if err != nil {
+		t.Fatalf("Activate should succeed when only non-critical fields fail in local scope, got: %v", err)
+	}
+}
+
+func TestActivate_GlobalScope_NonCriticalFieldFails(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Create a profile with non-critical fields
+	p := &Profile{
+		Name: "noncrit-global",
+		Git: GitConfig{
+			User: GitUser{Name: "Test", Email: "test@example.com"},
+			Core: GitCore{Editor: "vim"},
+		},
+	}
+	mgr.Create(p)
+
+	// Create a wrapper script that succeeds for user.name/user.email but fails for core.editor
+	script := filepath.Join(t.TempDir(), "fakegit.sh")
+	content := "#!/bin/sh\nfor arg in \"$@\"; do\n  case \"$arg\" in core.editor) exit 1;; esac\ndone\nexit 0\n"
+	os.WriteFile(script, []byte(content), 0755)
+	cfg.Advanced.GitCommand = script
+
+	// Activate in global scope — should fail because non-critical failure in global is an error
+	err := sw.Activate("noncrit-global", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error when non-critical git config field fails in global scope")
+	}
+	if !strings.Contains(err.Error(), "setting core.editor") {
+		t.Errorf("error = %q, want contains 'setting core.editor'", err)
+	}
+}
+
 func TestCurrent_SessionDetection(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found")
@@ -1258,18 +1329,13 @@ func TestActivate_IncrementUsageError(t *testing.T) {
 	os.Chdir(gitDir)
 	defer os.Chdir(origDir)
 
-	// Break profileAbsFn AFTER activation but before IncrementUsage.
-	callCount := 0
-	origAbs := profileAbsFn
-	profileAbsFn = func(path string) (string, error) {
-		callCount++
-		// Let the first calls succeed (Activate->Get->profilePath, applyGitConfig, etc.)
-		if callCount > 4 {
-			return "", errors.New("abs error")
-		}
-		return origAbs(path)
+	// Break yamlMarshalProfFn so that IncrementUsage->save fails.
+	// The marshal is only called during save(), not during Get() or applyGitConfig.
+	origMarshal := yamlMarshalProfFn
+	yamlMarshalProfFn = func(v interface{}) ([]byte, error) {
+		return nil, errors.New("marshal error")
 	}
-	defer func() { profileAbsFn = origAbs }()
+	defer func() { yamlMarshalProfFn = origMarshal }()
 
 	// Should not return error (IncrementUsage errors are just logged as warnings)
 	err := sw.Activate("work", ScopeLocal)

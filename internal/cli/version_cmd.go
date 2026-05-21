@@ -26,7 +26,6 @@ func newVersionCmd() *cobra.Command {
 			ui.Detail("Version", info.Version)
 			ui.Detail("Commit", info.Commit)
 			ui.Detail("Built", info.Date)
-			ui.Detail("Go", info.GoVersion)
 			ui.Detail("OS/Arch", info.OS+"/"+info.Arch)
 
 			return nil

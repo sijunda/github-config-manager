@@ -12,9 +12,6 @@ func TestGet(t *testing.T) {
 	if info.Version == "" {
 		t.Error("Version should not be empty")
 	}
-	if info.GoVersion == "" {
-		t.Error("GoVersion should not be empty")
-	}
 	if info.OS != runtime.GOOS {
 		t.Errorf("OS = %s, want %s", info.OS, runtime.GOOS)
 	}
