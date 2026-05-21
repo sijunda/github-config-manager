@@ -1,0 +1,452 @@
+// Package github – token_store.go implements secure token persistence with
+// three storage backends chosen at runtime from the SecurityConfig:
+//
+//  1. OS Keychain  (Security.UseKeychain = true)
+//     Uses the platform credential store via go-keyring: macOS Keychain,
+//     Linux secret-service / KWallet, Windows Credential Manager.
+//
+//  2. Encrypted file  (Security.EncryptTokens = true, MasterPassword = true)
+//     Derives an AES-256 key from a master password via Argon2id (time=3,
+//     memory=64 MiB, threads=4). A random 16-byte salt is stored alongside
+//     the ciphertext in the v2 on-disk format. Legacy v1 tokens (PBKDF2,
+//     100 000 iterations, SHA-256) are transparently decrypted and
+//     re-encrypted with Argon2id on next save. The master password is
+//     prompted once per session through the promptFunc callback and cached
+//     in memory for the process lifetime.
+//
+//  3. Plain-text file  (default fallback)
+//     Token written with 0600 permissions. Simple, auditable, but relies
+//     solely on filesystem ACLs.
+//
+// Every backend that touches the filesystem goes through sanitizeTokenPath()
+// which prevents path-traversal attacks.
+package github
+
+import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
+	"github-config-manager/internal/config"
+	cryptoSvc "github-config-manager/internal/service/crypto"
+	"github-config-manager/pkg/logger"
+
+	"github.com/zalando/go-keyring"
+)
+
+const (
+	// keychainService is the service label stored in the OS keychain.
+	keychainService = "github-config-manager"
+
+	// saltLen must match crypto.Service.GenerateSalt output (16 bytes).
+	tokenSaltLen = 16
+
+	// tokenFormatV2 is the magic byte that identifies the Argon2id-based
+	// encrypted token format. Existing (v1) files start with 0x00 (the
+	// high byte of uint16(16)), so 0x02 is unambiguous.
+	tokenFormatV2 byte = 0x02
+)
+
+// Keyring function hooks – overridden in tests to avoid OS keychain.
+var (
+	keyringSet    = keyring.Set
+	keyringGet    = keyring.Get
+	keyringDelete = keyring.Delete
+)
+
+// File-operation hooks – overridden in tests to simulate I/O errors.
+var (
+	osMkdirAll   = os.MkdirAll
+	osCreateTemp = os.CreateTemp
+	osRename     = os.Rename
+	fileWrite    = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+	fileChmod    = func(f *os.File, mode os.FileMode) error { return f.Chmod(mode) }
+	fileSync     = func(f *os.File) error { return f.Sync() }
+	fileClose    = func(f *os.File) error { return f.Close() }
+	filepathAbs  = filepath.Abs
+	filepathRel  = filepath.Rel
+)
+
+// Crypto-operation hooks – overridden in tests to simulate crypto errors.
+var (
+	generateSalt = func(c *cryptoSvc.Service) ([]byte, error) { return c.GenerateSalt() }
+	encryptData  = func(c *cryptoSvc.Service, plaintext, key []byte) ([]byte, error) { return c.Encrypt(plaintext, key) }
+)
+
+// PromptFunc asks the user for input (e.g. a master password).
+// It is supplied by the CLI layer so the token store itself has no
+// dependency on terminal I/O.
+type PromptFunc func(msg string) (string, error)
+
+// TokenStore handles secure persistence of GitHub OAuth tokens.
+type TokenStore struct {
+	cfg        *config.Config
+	crypto     *cryptoSvc.Service
+	log        *logger.Logger
+	promptFunc PromptFunc
+
+	// cachedPassword caches the master password as a byte slice so it can
+	// be zeroed if needed. The user is only prompted once per process lifetime.
+	masterKeyOnce  sync.Once
+	cachedPassword []byte
+	masterKeyErr   error
+}
+
+// NewTokenStore creates a token store configured according to the
+// SecurityConfig. promptFunc is called at most once to obtain the master
+// password when encrypted-file storage is active.
+func NewTokenStore(cfg *config.Config, crypto *cryptoSvc.Service, log *logger.Logger, prompt PromptFunc) *TokenStore {
+	return &TokenStore{
+		cfg:        cfg,
+		crypto:     crypto,
+		log:        log,
+		promptFunc: prompt,
+	}
+}
+
+// SetPromptFunc sets the callback used to ask the user for a master password.
+// This allows the prompt to be injected after construction (e.g. by the CLI).
+func (ts *TokenStore) SetPromptFunc(fn PromptFunc) {
+	ts.promptFunc = fn
+}
+
+// Save persists a token for the given profile using the configured backend.
+func (ts *TokenStore) Save(profile, token string) error {
+	if ts.cfg.Security.UseKeychain {
+		return ts.saveKeychain(profile, token)
+	}
+	if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
+		return ts.saveEncrypted(profile, token)
+	}
+	return ts.savePlain(profile, token)
+}
+
+// Load retrieves the token for the given profile.
+func (ts *TokenStore) Load(profile string) (string, error) {
+	if ts.cfg.Security.UseKeychain {
+		return ts.loadKeychain(profile)
+	}
+	if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
+		return ts.loadEncrypted(profile)
+	}
+	return ts.loadPlain(profile)
+}
+
+// Delete removes the stored token for the given profile.
+func (ts *TokenStore) Delete(profile string) error {
+	if ts.cfg.Security.UseKeychain {
+		return ts.deleteKeychain(profile)
+	}
+	return ts.deleteFile(profile)
+}
+
+// ---------------------------------------------------------------------------
+// Backend 1: OS Keychain
+// ---------------------------------------------------------------------------
+
+func (ts *TokenStore) saveKeychain(profile, token string) error {
+	if err := keyringSet(keychainService, profile, token); err != nil {
+		// Graceful fallback: if keychain is unavailable (headless Linux, no D-Bus,
+		// CI/CD, SSH session), fall back to file-based storage instead of failing.
+		ts.log.Debug("Keychain unavailable, falling back to file storage",
+			logger.F("error", err.Error()), logger.F("profile", profile))
+		if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
+			return ts.saveEncrypted(profile, token)
+		}
+		return ts.savePlain(profile, token)
+	}
+	ts.log.Debug("Token saved to OS keychain", logger.F("profile", profile))
+	return nil
+}
+
+func (ts *TokenStore) loadKeychain(profile string) (string, error) {
+	token, err := keyringGet(keychainService, profile)
+	if err != nil {
+		// Graceful fallback: try file-based storage if keychain is unavailable.
+		ts.log.Debug("Keychain read failed, trying file fallback",
+			logger.F("error", err.Error()), logger.F("profile", profile))
+		if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
+			if t, e := ts.loadEncrypted(profile); e == nil {
+				return t, nil
+			}
+		}
+		if t, e := ts.loadPlain(profile); e == nil {
+			return t, nil
+		}
+		return "", fmt.Errorf("loading token from keychain: %w", err)
+	}
+	if token == "" {
+		return "", fmt.Errorf("empty token in keychain for profile %q", profile)
+	}
+	return token, nil
+}
+
+func (ts *TokenStore) deleteKeychain(profile string) error {
+	err := keyringDelete(keychainService, profile)
+	if err != nil && !isKeyringNotFound(err) {
+		return fmt.Errorf("deleting token from keychain: %w", err)
+	}
+	// Also clean up any leftover file from a previous storage mode.
+	_ = ts.deleteFile(profile)
+	return nil
+}
+
+// isKeyringNotFound returns true when the keyring reports that the
+// requested secret does not exist. go-keyring surfaces this as
+// keyring.ErrNotFound on all platforms.
+func isKeyringNotFound(err error) bool {
+	return err == keyring.ErrNotFound
+}
+
+// ---------------------------------------------------------------------------
+// Backend 2: Encrypted file (PBKDF2-derived AES-256-GCM)
+// ---------------------------------------------------------------------------
+
+// On-disk layout: [ 2-byte salt-length (big-endian) | salt | ciphertext ]
+// The ciphertext is produced by crypto.Service.Encrypt which prepends its
+// own 12-byte GCM nonce internally.
+
+func (ts *TokenStore) saveEncrypted(profile, token string) error {
+	password, err := ts.getMasterPassword()
+	if err != nil {
+		return err
+	}
+
+	salt, err := generateSalt(ts.crypto)
+	if err != nil {
+		return fmt.Errorf("generating salt: %w", err)
+	}
+
+	key := ts.crypto.DeriveKeyArgon2id(string(password), salt)
+	defer zeroBytes(key)
+
+	ciphertext, err := encryptData(ts.crypto, []byte(token), key)
+	if err != nil {
+		return fmt.Errorf("encrypting token: %w", err)
+	}
+
+	// v2 on-disk layout: [ 0x02 | 2-byte salt-length (big-endian) | salt | ciphertext ]
+	buf := make([]byte, 1+2+len(salt)+len(ciphertext))
+	buf[0] = tokenFormatV2
+	binary.BigEndian.PutUint16(buf[1:3], uint16(len(salt)))
+	copy(buf[3:3+len(salt)], salt)
+	copy(buf[3+len(salt):], ciphertext)
+
+	return ts.writeTokenFile(profile, buf)
+}
+
+func (ts *TokenStore) loadEncrypted(profile string) (string, error) {
+	payload, err := ts.readTokenFile(profile)
+	if err != nil {
+		return "", err
+	}
+
+	if len(payload) < 2+tokenSaltLen {
+		return "", fmt.Errorf("corrupt encrypted token file for profile %q", profile)
+	}
+
+	var salt, ciphertext []byte
+	var useArgon2 bool
+
+	if payload[0] == tokenFormatV2 {
+		// v2 format: [ 0x02 | 2-byte salt-len | salt | ciphertext ]
+		useArgon2 = true
+		if len(payload) < 3+tokenSaltLen {
+			return "", fmt.Errorf("corrupt encrypted token file for profile %q", profile)
+		}
+		sLen := int(binary.BigEndian.Uint16(payload[1:3]))
+		if sLen < 1 || 3+sLen > len(payload) {
+			return "", fmt.Errorf("corrupt encrypted token file for profile %q", profile)
+		}
+		salt = payload[3 : 3+sLen]
+		ciphertext = payload[3+sLen:]
+	} else {
+		// v1 format (legacy PBKDF2): [ 2-byte salt-len | salt | ciphertext ]
+		saltLen := int(binary.BigEndian.Uint16(payload[0:2]))
+		if saltLen < 1 || 2+saltLen > len(payload) {
+			return "", fmt.Errorf("corrupt encrypted token file for profile %q", profile)
+		}
+		salt = payload[2 : 2+saltLen]
+		ciphertext = payload[2+saltLen:]
+	}
+
+	password, err := ts.getMasterPassword()
+	if err != nil {
+		return "", err
+	}
+
+	var key []byte
+	if useArgon2 {
+		key = ts.crypto.DeriveKeyArgon2id(string(password), salt)
+	} else {
+		key = ts.crypto.DeriveKey(string(password), salt)
+	}
+	defer zeroBytes(key)
+
+	plaintext, err := ts.crypto.Decrypt(ciphertext, key)
+	if err != nil {
+		return "", fmt.Errorf("decrypting token (wrong master password?): %w", err)
+	}
+
+	token := strings.TrimSpace(string(plaintext))
+	if token == "" {
+		return "", fmt.Errorf("empty token after decryption for profile %q", profile)
+	}
+	return token, nil
+}
+
+func (ts *TokenStore) getMasterPassword() ([]byte, error) {
+	ts.masterKeyOnce.Do(func() {
+		if ts.promptFunc == nil {
+			ts.masterKeyErr = fmt.Errorf("master password required but no prompt function configured")
+			return
+		}
+		var pw string
+		pw, ts.masterKeyErr = ts.promptFunc("Enter master password")
+		if ts.masterKeyErr != nil {
+			ts.masterKeyErr = fmt.Errorf("reading master password: %w", ts.masterKeyErr)
+			return
+		}
+		if pw == "" {
+			ts.masterKeyErr = fmt.Errorf("master password cannot be empty")
+			return
+		}
+		// Store as []byte so it can be zeroed on process shutdown if desired.
+		ts.cachedPassword = []byte(pw)
+	})
+	return ts.cachedPassword, ts.masterKeyErr
+}
+
+// ZeroPassword zeroes the cached master password from memory.
+// Call this during graceful shutdown to minimize the window of exposure.
+func (ts *TokenStore) ZeroPassword() {
+	for i := range ts.cachedPassword {
+		ts.cachedPassword[i] = 0
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Backend 3: Plain-text file (0600 permissions)
+// ---------------------------------------------------------------------------
+
+func (ts *TokenStore) savePlain(profile, token string) error {
+	ts.log.Debug("Saving token in plain-text mode (file permissions only)",
+		logger.F("profile", profile))
+	return ts.writeTokenFile(profile, []byte(token))
+}
+
+func (ts *TokenStore) loadPlain(profile string) (string, error) {
+	payload, err := ts.readTokenFile(profile)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(payload))
+	if token == "" {
+		return "", fmt.Errorf("empty token file for profile %q", profile)
+	}
+	return token, nil
+}
+
+// ---------------------------------------------------------------------------
+// Shared file helpers
+// ---------------------------------------------------------------------------
+
+// sanitizeTokenPath builds and validates the on-disk token path for a
+// profile, refusing names that would escape the tokens directory.
+func sanitizeTokenPath(profile string) (string, error) {
+	if profile == "" {
+		return "", fmt.Errorf("profile name cannot be empty")
+	}
+	if strings.ContainsAny(profile, `/\`) || strings.Contains(profile, "..") {
+		return "", fmt.Errorf("invalid profile name %q", profile)
+	}
+	tokenDir := filepath.Join(config.GCMDir(), "tokens")
+	baseAbs, err := filepathAbs(tokenDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving tokens dir: %w", err)
+	}
+	full := filepath.Clean(filepath.Join(baseAbs, profile+".token"))
+	rel, err := filepathRel(baseAbs, full)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid profile name %q", profile)
+	}
+	return full, nil
+}
+
+func (ts *TokenStore) writeTokenFile(profile string, data []byte) error {
+	tokenPath, err := sanitizeTokenPath(profile)
+	if err != nil {
+		return err
+	}
+	tokenDir := filepath.Dir(tokenPath)
+	if err := osMkdirAll(tokenDir, 0700); err != nil {
+		return fmt.Errorf("creating tokens directory: %w", err)
+	}
+
+	// Atomic write: temp file + sync + rename to prevent token corruption
+	// if the process is interrupted (e.g., user Ctrl-C during save).
+	tmp, err := osCreateTemp(tokenDir, ".token-*")
+	if err != nil {
+		return fmt.Errorf("creating temp token file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		if _, statErr := os.Stat(tmpPath); statErr == nil {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := fileWrite(tmp, data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing token: %w", err)
+	}
+	if err := fileChmod(tmp, 0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("setting token permissions: %w", err)
+	}
+	if err := fileSync(tmp); err != nil {
+		tmp.Close()
+		return fmt.Errorf("syncing token file: %w", err)
+	}
+	if err := fileClose(tmp); err != nil {
+		return fmt.Errorf("closing token file: %w", err)
+	}
+	if err := osRename(tmpPath, tokenPath); err != nil {
+		return fmt.Errorf("writing token: %w", err)
+	}
+	return nil
+}
+
+func (ts *TokenStore) readTokenFile(profile string) ([]byte, error) {
+	tokenPath, err := sanitizeTokenPath(profile)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading token: %w", err)
+	}
+	return payload, nil
+}
+
+func (ts *TokenStore) deleteFile(profile string) error {
+	tokenPath, err := sanitizeTokenPath(profile)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(tokenPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("deleting token: %w", err)
+	}
+	return nil
+}
+
+// zeroBytes overwrites a byte slice with zeros to remove sensitive material
+// (e.g. derived encryption keys) from memory as soon as they are no longer needed.
+func zeroBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
