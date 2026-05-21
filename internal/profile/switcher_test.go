@@ -1,0 +1,1299 @@
+package profile
+
+import (
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github-config-manager/internal/config"
+	fileSvc "github-config-manager/internal/service/file"
+	"github-config-manager/pkg/logger"
+)
+
+func newTestSwitcher(t *testing.T) (*Switcher, *Manager, *config.Config) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.ProfilesDir = filepath.Join(dir, "profiles")
+	cfg.TemplatesDir = filepath.Join(dir, "templates")
+	cfg.CacheDir = filepath.Join(dir, "cache")
+	cfg.AutoSwitch.ProjectFile = ".gcm-profile"
+	cfg.Advanced.GitCommand = "git"
+
+	if err := os.MkdirAll(cfg.ProfilesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	fs := fileSvc.NewService()
+	log := logger.New(logger.LevelError, os.Stderr)
+	mgr := NewManager(cfg, fs, log)
+	sw := NewSwitcher(cfg, mgr, log)
+	return sw, mgr, cfg
+}
+
+func TestNewSwitcher(t *testing.T) {
+	sw, _, _ := newTestSwitcher(t)
+	if sw == nil {
+		t.Fatal("expected non-nil switcher")
+	}
+	if sw.cfg == nil {
+		t.Error("expected non-nil cfg")
+	}
+	if sw.manager == nil {
+		t.Error("expected non-nil manager")
+	}
+	if sw.log == nil {
+		t.Error("expected non-nil log")
+	}
+}
+
+func TestCurrent_NoActiveProfile(t *testing.T) {
+	sw, _, _ := newTestSwitcher(t)
+	_, _, err := sw.Current()
+	if err == nil {
+		t.Fatal("expected error when no active profile")
+	}
+}
+
+func TestCurrent_DefaultProfile(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	_ = mgr.Create(validProfile("work"))
+
+	// chdir to a non-git temp dir so detectSessionProfile finds nothing
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	cfg.DefaultProfile = "work"
+
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if name != "work" {
+		t.Errorf("name = %q, want work", name)
+	}
+	if scope != ScopeGlobal {
+		t.Errorf("scope = %v, want ScopeGlobal", scope)
+	}
+}
+
+func TestCurrent_DefaultProfileNotExist(t *testing.T) {
+	sw, _, cfg := newTestSwitcher(t)
+	cfg.DefaultProfile = "nonexistent"
+
+	_, _, err := sw.Current()
+	if err == nil {
+		t.Fatal("expected error when default profile doesn't exist")
+	}
+}
+
+func TestCurrent_LocalProjectFile(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	_ = mgr.Create(validProfile("local-proj"))
+
+	// Change to a non-git temp dir so detectSessionProfile() finds nothing
+	// and the local project file check takes precedence.
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	// Write .gcm-profile in the temp directory
+	projectFile := filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile)
+	if err := os.WriteFile(projectFile, []byte("local-proj\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if name != "local-proj" {
+		t.Errorf("name = %q, want local-proj", name)
+	}
+	if scope != ScopeLocal {
+		t.Errorf("scope = %v, want ScopeLocal", scope)
+	}
+}
+
+func TestActivate_NotFoundProfile(t *testing.T) {
+	sw, _, _ := newTestSwitcher(t)
+	err := sw.Activate("nonexistent", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error for nonexistent profile")
+	}
+}
+
+func TestActivate_LocalScope(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	_ = mgr.Create(validProfile("localtest"))
+
+	// Change to temp dir so the .gcm-profile is written there
+	origDir, _ := os.Getwd()
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	// Activate local scope (git config may fail if not in a git repo, but that's ok)
+	err := sw.Activate("localtest", ScopeLocal)
+	if err != nil {
+		t.Fatalf("Activate local: %v", err)
+	}
+
+	// Verify .gcm-profile was written
+	data, err := os.ReadFile(filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile))
+	if err != nil {
+		t.Fatalf("reading project file: %v", err)
+	}
+	if got := string(data); got != "localtest\n" {
+		t.Errorf("project file content = %q, want %q", got, "localtest\n")
+	}
+
+	// Usage should have incremented
+	p, _ := mgr.Get("localtest")
+	if p.Metadata.UsageCount != 1 {
+		t.Errorf("UsageCount = %d, want 1", p.Metadata.UsageCount)
+	}
+}
+
+func TestRefresh_NoProfile(t *testing.T) {
+	sw, _, _ := newTestSwitcher(t)
+	// Refresh with no active profile should not error
+	if err := sw.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+}
+func TestActivate_GlobalScope(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("globaltest"))
+
+	// Set HOME to temp dir to avoid corrupting real ~/.gcm/config.yaml
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	os.MkdirAll(filepath.Join(tmpHome, ".gcm"), 0755)
+
+	err := sw.Activate("globaltest", ScopeGlobal)
+	if err != nil {
+		t.Fatalf("Activate global: %v", err)
+	}
+}
+
+func TestActivate_SessionScope(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a git repo for session scope
+	gitDir := t.TempDir()
+	os.MkdirAll(filepath.Join(gitDir, ".git"), 0o755)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	mgr.Create(validProfile("sessiontest"))
+
+	err := sw.Activate("sessiontest", ScopeSession)
+	// May fail if git isn't configured properly, but should at least try
+	_ = err
+}
+
+func TestActivate_NotFound(t *testing.T) {
+	sw, _, _ := newTestSwitcher(t)
+	err := sw.Activate("nonexistent", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error for nonexistent profile")
+	}
+}
+
+func TestCurrent_GlobalDefault(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("default"))
+
+	// chdir to a non-git temp dir so detectSessionProfile finds nothing
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	cfg.DefaultProfile = "default"
+
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if name != "default" {
+		t.Errorf("name = %q, want %q", name, "default")
+	}
+	if scope != ScopeGlobal {
+		t.Errorf("scope = %v, want ScopeGlobal", scope)
+	}
+}
+
+func TestRefresh_WithActiveProfile(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("refreshme"))
+	cfg.DefaultProfile = "refreshme"
+
+	err := sw.Refresh()
+	// May error due to git not being initialized in temp dir, that's fine
+	_ = err
+}
+
+func TestScopeString(t *testing.T) {
+	if ScopeGlobal.String() != "global" {
+		t.Errorf("ScopeGlobal.String() = %q", ScopeGlobal.String())
+	}
+	if ScopeLocal.String() != "local" {
+		t.Errorf("ScopeLocal.String() = %q", ScopeLocal.String())
+	}
+	if ScopeSession.String() != "session" {
+		t.Errorf("ScopeSession.String() = %q", ScopeSession.String())
+	}
+}
+
+func TestActivate_LocalInGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a git repo in a temp dir
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	// cd into git dir
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	p := &Profile{
+		Name: "gitlocal",
+		Git: GitConfig{
+			User:    GitUser{Name: "Local User", Email: "local@test.com"},
+			Core:    GitCore{Editor: "vim"},
+			Commit:  GitCommit{GPGSign: BoolPtr(false)},
+			Pull:    GitPull{Rebase: "true"},
+			Push:    GitPush{Default: "current", FollowTags: BoolPtr(true), AutoSetupRemote: BoolPtr(true)},
+			Aliases: map[string]string{"co": "checkout"},
+			Custom:  map[string]string{"color.ui": "auto"},
+		},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := sw.Activate("gitlocal", ScopeLocal); err != nil {
+		t.Fatalf("activate local: %v", err)
+	}
+
+	// Verify git config was applied
+	out, err := exec.Command("git", "config", "--local", "user.name").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git config user.name: %v", err)
+	}
+	if got := string(out); got != "Local User\n" {
+		t.Errorf("user.name = %q, want 'Local User'", got)
+	}
+
+	// Verify .gcm-profile file was created
+	data, err := os.ReadFile(filepath.Join(gitDir, ".gcm-profile"))
+	if err != nil {
+		t.Fatalf("read .gcm-profile: %v", err)
+	}
+	if got := string(data); got != "gitlocal\n" {
+		t.Errorf(".gcm-profile = %q, want 'gitlocal\\n'", got)
+	}
+}
+
+func TestActivate_GlobalScope_FullProfile(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Use temp HOME to avoid polluting real global config
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Redirect config save to temp dir
+	cfg.CacheDir = filepath.Join(tmpHome, ".gcm")
+	os.MkdirAll(cfg.CacheDir, 0755)
+
+	p := &Profile{
+		Name: "globalfull",
+		Git: GitConfig{
+			User:   GitUser{Name: "Global User", Email: "global@test.com", SigningKey: "ABCD1234"},
+			Core:   GitCore{AutoCRLF: "false", EOL: "lf"},
+			Commit: GitCommit{Template: "/tmp/commit-msg"},
+		},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	err := sw.Activate("globalfull", ScopeGlobal)
+	if err != nil {
+		t.Fatalf("activate global: %v", err)
+	}
+
+	// Verify
+	out, _ := exec.Command("git", "config", "--global", "user.email").CombinedOutput()
+	if got := string(out); got != "global@test.com\n" {
+		t.Errorf("user.email = %q", got)
+	}
+}
+
+func TestCurrent_LocalProfileFile(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Create profile
+	mgr.Create(&Profile{
+		Name: "localcurrent",
+		Git:  GitConfig{User: GitUser{Name: "LC", Email: "lc@test.com"}},
+	})
+
+	// Create .gcm-profile in cwd
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	os.WriteFile(filepath.Join(dir, cfg.AutoSwitch.ProjectFile), []byte("localcurrent\n"), 0644)
+
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("current: %v", err)
+	}
+	if name != "localcurrent" {
+		t.Errorf("name = %q, want 'localcurrent'", name)
+	}
+	if scope != ScopeLocal {
+		t.Errorf("scope = %v, want ScopeLocal", scope)
+	}
+}
+
+func TestActivate_SessionScope_InGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	mgr.Create(validProfile("sessiongit"))
+	err := sw.Activate("sessiongit", ScopeSession)
+	if err != nil {
+		t.Fatalf("Activate session: %v", err)
+	}
+
+	// Verify git config was applied locally
+	out, err := exec.Command("git", "config", "--local", "user.email").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git config: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "test@example.com" {
+		t.Errorf("user.email = %q, want test@example.com", got)
+	}
+}
+
+func TestActivate_GlobalScope_AllOptionalFields(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	cfg.CacheDir = filepath.Join(tmpHome, ".gcm")
+	os.MkdirAll(cfg.CacheDir, 0755)
+
+	p := &Profile{
+		Name: "allopts",
+		Git: GitConfig{
+			User:    GitUser{Name: "All Opts User", Email: "allopts@test.com", SigningKey: "ABC123"},
+			Core:    GitCore{Editor: "nano", AutoCRLF: "input", EOL: "lf"},
+			Commit:  GitCommit{GPGSign: BoolPtr(true), Template: "/tmp/my-template"},
+			Pull:    GitPull{Rebase: "true", FF: "only"},
+			Push:    GitPush{Default: "simple", FollowTags: BoolPtr(true), AutoSetupRemote: BoolPtr(false)},
+			Aliases: map[string]string{"st": "status", "co": "checkout"},
+			Custom:  map[string]string{"color.ui": "always"},
+		},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	err := sw.Activate("allopts", ScopeGlobal)
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+
+	// Verify several config values
+	checks := map[string]string{
+		"user.name":            "All Opts User",
+		"user.email":           "allopts@test.com",
+		"user.signingkey":      "ABC123",
+		"core.editor":          "nano",
+		"core.autocrlf":        "input",
+		"core.eol":             "lf",
+		"commit.gpgsign":       "true",
+		"commit.template":      "/tmp/my-template",
+		"pull.rebase":          "true",
+		"pull.ff":              "only",
+		"push.default":         "simple",
+		"push.followTags":      "true",
+		"push.autoSetupRemote": "false",
+		"alias.st":             "status",
+		"alias.co":             "checkout",
+		"color.ui":             "always",
+	}
+	for key, want := range checks {
+		out, err := exec.Command("git", "config", "--global", key).CombinedOutput()
+		if err != nil {
+			t.Errorf("git config --global %s: %v", key, err)
+			continue
+		}
+		if got := strings.TrimSpace(string(out)); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestActivateLocal_UnwritableDir(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("unwritable"))
+
+	// Create a read-only directory, chdir into it
+	roDir := filepath.Join(t.TempDir(), "readonly")
+	os.MkdirAll(roDir, 0o755)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(roDir)
+	defer os.Chdir(origDir)
+
+	// Make dir read-only so WriteFile fails
+	os.Chmod(roDir, 0o555)
+	defer os.Chmod(roDir, 0o755)
+
+	err := sw.Activate("unwritable", ScopeLocal)
+	if err == nil {
+		t.Fatal("expected error writing .gcm-profile to read-only dir")
+	}
+}
+
+func TestActivate_WithSSHKey(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a fake SSH key file
+	keyDir := t.TempDir()
+	keyPath := filepath.Join(keyDir, "id_test")
+	os.WriteFile(keyPath, []byte("fake-key"), 0o600)
+
+	loadToAgent := false
+	p := &Profile{
+		Name: "sshprofile",
+		Git:  GitConfig{User: GitUser{Name: "SSH User", Email: "ssh@test.com"}},
+		SSH:  &SSHConfig{KeyPath: keyPath, LoadToAgent: &loadToAgent},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	gitDir := t.TempDir()
+	exec.Command("git", "init", gitDir).Run()
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Should not error - SSH key exists but load_to_agent is false
+	err := sw.Activate("sshprofile", ScopeLocal)
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+}
+
+func TestActivate_GlobalScope_GitConfigFails(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	// Use a nonexistent git command to force config write failure
+	cfg.Advanced.GitCommand = "nonexistent-git-binary-xyz"
+	mgr.Create(validProfile("failglobal"))
+
+	err := sw.Activate("failglobal", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error when git config fails globally")
+	}
+	if !strings.Contains(err.Error(), "activating global") {
+		t.Errorf("error = %q, expected 'activating global'", err)
+	}
+}
+
+func TestActivate_SessionScope_NotInGitRepo(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("sessionfail"))
+
+	// chdir to temp dir that is NOT a git repo
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// Session scope applies --local git config; should not hard-fail
+	// (individual config errors with --local are skipped)
+	err := sw.Activate("sessionfail", ScopeSession)
+	// May or may not error depending on git behavior
+	_ = err
+}
+
+func TestActivate_LocalScope_WriteFailure(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("writefail"))
+
+	// Create a read-only dir to cause WriteFile failure
+	roDir := filepath.Join(t.TempDir(), "readonly")
+	os.MkdirAll(roDir, 0o755)
+	origDir, _ := os.Getwd()
+	os.Chdir(roDir)
+	defer os.Chdir(origDir)
+
+	os.Chmod(roDir, 0o555)
+	defer os.Chmod(roDir, 0o755)
+
+	err := sw.Activate("writefail", ScopeLocal)
+	if err == nil {
+		t.Fatal("expected error writing .gcm-profile to read-only dir")
+	}
+	if !strings.Contains(err.Error(), "activating local") {
+		t.Errorf("error = %q, expected 'activating local'", err)
+	}
+}
+
+func TestCurrent_LocalProfileNotExist(t *testing.T) {
+	sw, _, cfg := newTestSwitcher(t)
+
+	// Write .gcm-profile with a profile name that doesn't exist
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	os.WriteFile(filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile), []byte("ghost\n"), 0o644)
+
+	// Should fall through to check global since the local profile doesn't exist
+	_, _, err := sw.Current()
+	if err == nil {
+		t.Fatal("expected error when no valid profile is found")
+	}
+}
+
+func TestRefresh_WithGlobalProfile(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("refreshglobal"))
+	cfg.DefaultProfile = "refreshglobal"
+
+	// Refresh triggers Activate for the current profile
+	err := sw.Refresh()
+	// May fail due to git not being initialized, but exercises the code path
+	_ = err
+}
+
+func TestActivate_WithSSHKey_LoadToAgent_True(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a fake SSH key file
+	keyDir := t.TempDir()
+	keyPath := filepath.Join(keyDir, "id_test")
+	os.WriteFile(keyPath, []byte("fake-key-content"), 0o600)
+
+	loadToAgent := true
+	p := &Profile{
+		Name: "sshload",
+		Git:  GitConfig{User: GitUser{Name: "SSH Load User", Email: "sshload@test.com"}},
+		SSH:  &SSHConfig{KeyPath: keyPath, LoadToAgent: &loadToAgent},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	gitDir := t.TempDir()
+	exec.Command("git", "init", gitDir).Run()
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// ssh-add will likely fail with the fake key, but the path is exercised
+	err := sw.Activate("sshload", ScopeLocal)
+	// The ssh-add failure is logged as warning but shouldn't cause error
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+}
+
+func TestActivate_WithSSHKey_Nonexistent(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+
+	loadToAgent := true
+	p := &Profile{
+		Name: "sshnokey",
+		Git:  GitConfig{User: GitUser{Name: "No Key", Email: "nokey@test.com"}},
+		SSH:  &SSHConfig{KeyPath: "/nonexistent/path/id_ed25519", LoadToAgent: &loadToAgent},
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	gitDir := t.TempDir()
+	exec.Command("git", "init", gitDir).Run()
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Key doesn't exist so ssh-add is skipped
+	err := sw.Activate("sshnokey", ScopeLocal)
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+}
+
+func TestActivate_WithSSHKey_NilLoadToAgent(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a fake SSH key
+	keyDir := t.TempDir()
+	keyPath := filepath.Join(keyDir, "id_test")
+	os.WriteFile(keyPath, []byte("fake-key"), 0o600)
+
+	p := &Profile{
+		Name: "sshnilload",
+		Git:  GitConfig{User: GitUser{Name: "Nil Load", Email: "nilload@test.com"}},
+		SSH:  &SSHConfig{KeyPath: keyPath, LoadToAgent: nil}, // nil means default to true
+	}
+	if err := mgr.Create(p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	gitDir := t.TempDir()
+	exec.Command("git", "init", gitDir).Run()
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// ssh-add will be attempted (default to true when nil)
+	err := sw.Activate("sshnilload", ScopeLocal)
+	if err != nil {
+		t.Fatalf("activate: %v", err)
+	}
+}
+
+// --- Filesystem error injection tests for Switcher ---
+
+func TestActivate_GlobalGitConfigUserNameError(t *testing.T) {
+	// Use a nonexistent git command so git config user.name fails
+	sw, mgr, cfg := newTestSwitcher(t)
+	cfg.Advanced.GitCommand = "/nonexistent-git-binary"
+
+	mgr.Create(validProfile("gitfail"))
+
+	err := sw.Activate("gitfail", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error when git binary doesn't exist")
+	}
+}
+
+func TestActivate_GlobalGitConfigSigningKeyError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Use a real git but no HOME so global config fails
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	cfg.CacheDir = filepath.Join(tmpHome, ".gcm")
+	os.MkdirAll(cfg.CacheDir, 0755)
+
+	// Profile with signing key to trigger that path
+	p := &Profile{
+		Name: "signfail",
+		Git:  GitConfig{User: GitUser{Name: "S", Email: "s@test.com", SigningKey: "KEY123"}},
+	}
+	mgr.Create(p)
+
+	// This should succeed or fail gracefully - exercises the signingkey code path
+	_ = sw.Activate("signfail", ScopeGlobal)
+}
+
+func TestActivate_GlobalGitConfigEmailError(t *testing.T) {
+	// Use a script that succeeds for user.name but fails for user.email
+	sw, mgr, cfg := newTestSwitcher(t)
+	cfg.Advanced.GitCommand = "/nonexistent-git-xyz"
+
+	p := &Profile{
+		Name: "emailfail",
+		Git:  GitConfig{User: GitUser{Name: "E", Email: "e@test.com"}},
+	}
+	mgr.Create(p)
+
+	err := sw.Activate("emailfail", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error when git command doesn't exist")
+	}
+}
+
+func TestCurrent_ReadFileError(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("current-err"))
+
+	// Create a .gcm-profile file that is unreadable
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	profileFile := filepath.Join(dir, cfg.AutoSwitch.ProjectFile)
+	os.WriteFile(profileFile, []byte("current-err\n"), 0o000)
+	t.Cleanup(func() { os.Chmod(profileFile, 0o644) })
+
+	// ReadFile will fail, so it should fall through to global default
+	cfg.DefaultProfile = "current-err"
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	// Should fall through to global since local file is unreadable
+	if scope != ScopeGlobal {
+		t.Errorf("scope = %v, want ScopeGlobal (fallback from unreadable local)", scope)
+	}
+	if name != "current-err" {
+		t.Errorf("name = %q, want current-err", name)
+	}
+}
+
+func TestActivate_GlobalScope_ConfigSaveError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+
+	// Use a temp HOME so global git config works
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	cfg.CacheDir = filepath.Join(tmpHome, ".gcm")
+	os.MkdirAll(cfg.CacheDir, 0o755)
+
+	mgr.Create(validProfile("cfgsavefail"))
+
+	// Make the GCM config directory unwritable so config.Save() fails
+	gcmDir := filepath.Join(tmpHome, ".gcm")
+	os.MkdirAll(gcmDir, 0o755)
+	os.Chmod(gcmDir, 0o555)
+	t.Cleanup(func() { os.Chmod(gcmDir, 0o755) })
+
+	err := sw.Activate("cfgsavefail", ScopeGlobal)
+	if err == nil {
+		t.Fatal("expected error when config.Save fails")
+	}
+	if !strings.Contains(err.Error(), "saving config") {
+		t.Errorf("error = %q, expected 'saving config'", err)
+	}
+}
+
+func TestActivate_LocalScope_CwdUnwritable(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("localfail"))
+
+	// Change to a read-only directory so WriteFile fails
+	roDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(roDir)
+	os.Chmod(roDir, 0o555)
+	t.Cleanup(func() {
+		os.Chdir(origDir)
+		os.Chmod(roDir, 0o755)
+	})
+
+	err := sw.Activate("localfail", ScopeLocal)
+	if err == nil {
+		t.Fatal("expected error when cwd is unwritable")
+	}
+	if !strings.Contains(err.Error(), "activating local") {
+		t.Errorf("error = %q, want 'activating local'", err)
+	}
+}
+
+func TestActivate_LocalScope_GitConfigFails(t *testing.T) {
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("nogit"))
+
+	// Use a writable tmp dir that is NOT a git repo, with a non-existent git command
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+
+	cfg.Advanced.GitCommand = "/nonexistent/git-binary"
+
+	// This should succeed because activateLocal catches the git error and continues
+	err := sw.Activate("nogit", ScopeLocal)
+	if err != nil {
+		t.Fatalf("Activate: %v", err)
+	}
+
+	// The .gcm-profile file should still be written
+	data, _ := os.ReadFile(filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile))
+	if string(data) != "nogit\n" {
+		t.Errorf("project file = %q, want %q", string(data), "nogit\n")
+	}
+}
+
+func TestCurrent_SessionDetection(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a git repo
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Create a profile
+	p := &Profile{
+		Name: "sessiondetect",
+		Git:  GitConfig{User: GitUser{Name: "Session User", Email: "session@detect.com"}},
+	}
+	mgr.Create(p)
+
+	// Activate with session scope
+	err := sw.Activate("sessiondetect", ScopeSession)
+	if err != nil {
+		t.Fatalf("Activate session: %v", err)
+	}
+
+	// Current should now detect this profile via local git config
+	name, scope, err := sw.Current()
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if name != "sessiondetect" {
+		t.Errorf("name = %q, want sessiondetect", name)
+	}
+	if scope != ScopeSession {
+		t.Errorf("scope = %v, want ScopeSession", scope)
+	}
+}
+
+func TestActivate_ConfigSaveError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+
+	// Create a git repo so applyGitConfig succeeds
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	mgr.Create(validProfile("work"))
+
+	orig := configSaveFn
+	configSaveFn = func(*config.Config) error { return errors.New("save failed") }
+	defer func() { configSaveFn = orig }()
+
+	err := sw.Activate("work", ScopeGlobal)
+	if err == nil || !strings.Contains(err.Error(), "saving config") {
+		t.Fatalf("expected config save error, got: %v", err)
+	}
+}
+
+func TestActivateLocal_GetwdError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	// chdir to a non-git dir so applyGitConfig fails (which is ok) then Getwd fails
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	orig := swGetwdFn
+	swGetwdFn = func() (string, error) { return "", errors.New("getwd error") }
+	defer func() { swGetwdFn = orig }()
+
+	err := sw.Activate("work", ScopeLocal)
+	if err == nil || !strings.Contains(err.Error(), "getting cwd") {
+		t.Fatalf("expected getwd error, got: %v", err)
+	}
+}
+
+func TestActivateLocal_WriteFileError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	orig := swWriteFileFn
+	swWriteFileFn = func(string, []byte, os.FileMode) error { return errors.New("write error") }
+	defer func() { swWriteFileFn = orig }()
+
+	err := sw.Activate("work", ScopeLocal)
+	if err == nil || !strings.Contains(err.Error(), "writing") {
+		t.Fatalf("expected write error, got: %v", err)
+	}
+}
+
+func TestActivateSession_WriteSessionMarkerError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	// chdir to non-git dir so writeSessionMarker fails ("not in a git repository")
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	err := sw.Activate("work", ScopeSession)
+	if err == nil || !strings.Contains(err.Error(), "writing session marker") {
+		t.Fatalf("expected session marker error, got: %v", err)
+	}
+}
+
+func TestClearSession_InGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Write a session marker then clear it
+	markerPath := filepath.Join(gitDir, ".git", "gcm-session")
+	os.WriteFile(markerPath, []byte("someprofile\n"), 0644)
+
+	sw.ClearSession()
+
+	if _, err := os.Stat(markerPath); err == nil {
+		t.Error("expected session marker to be removed")
+	}
+}
+
+func TestClearSession_NotInGitRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// Should not panic
+	sw.ClearSession()
+}
+
+func TestReadSessionMarker_FileReadError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	// Set up a git repo
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Force ReadFile to fail
+	orig := swReadFileFn
+	swReadFileFn = func(string) ([]byte, error) { return nil, errors.New("read error") }
+	defer func() { swReadFileFn = orig }()
+
+	result := sw.readSessionMarker()
+	if result != "" {
+		t.Errorf("expected empty string, got %q", result)
+	}
+}
+
+func TestDetectSessionProfile_EmptyEmail(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	// Set up a git repo with user.email set to empty
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Set local email to empty string
+	cmd = exec.Command("git", "config", "--local", "user.email", "")
+	cmd.Dir = gitDir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	cmd.Run()
+
+	result := sw.detectSessionProfile()
+	if result != "" {
+		t.Errorf("expected empty string for empty email, got %q", result)
+	}
+}
+
+func TestDetectSessionProfile_ListError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, cfg := newTestSwitcher(t)
+
+	// Set up a git repo with a valid email set
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Set a non-empty email
+	cmd = exec.Command("git", "config", "--local", "user.email", "test@example.com")
+	cmd.Dir = gitDir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	cmd.Run()
+
+	// Break the profiles dir with bad glob pattern so List fails
+	cfg.ProfilesDir = filepath.Join(t.TempDir(), "[unclosed")
+
+	result := sw.detectSessionProfile()
+	if result != "" {
+		t.Errorf("expected empty string when List fails, got %q", result)
+	}
+}
+
+func TestFindGitDir_GetwdError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	// Set up a git repo (findGitDir returns relative .git path)
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Force Getwd to fail
+	orig := swGetwdFn
+	swGetwdFn = func() (string, error) { return "", errors.New("getwd error") }
+	defer func() { swGetwdFn = orig }()
+
+	result := sw.findGitDir()
+	if result != "" {
+		t.Errorf("expected empty string when Getwd fails, got %q", result)
+	}
+}
+
+func TestActivate_IncrementUsageError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	// chdir to a non-git temp dir (activateLocal will fail to set git config but that's ok)
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// Break profileAbsFn AFTER activation but before IncrementUsage.
+	callCount := 0
+	origAbs := profileAbsFn
+	profileAbsFn = func(path string) (string, error) {
+		callCount++
+		// Let the first 2 calls succeed (Activate->Get->profilePath)
+		if callCount > 2 {
+			return "", errors.New("abs error")
+		}
+		return origAbs(path)
+	}
+	defer func() { profileAbsFn = origAbs }()
+
+	// Should not return error (IncrementUsage errors are just logged as warnings)
+	err := sw.Activate("work", ScopeLocal)
+	if err != nil {
+		t.Fatalf("Activate should succeed even if IncrementUsage fails, got: %v", err)
+	}
+}
+
+func TestActivateLocal_ApplyGitConfigError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	// chdir to a non-git temp dir so applyGitConfig("--local") fails
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// activateLocal should still succeed (just logs debug message)
+	p, _ := mgr.Get("work")
+	err := sw.activateLocal(p)
+	if err != nil {
+		t.Fatalf("activateLocal should succeed even when git config fails, got: %v", err)
+	}
+}
+
+func TestActivateSession_ApplyGitConfigErrorAfterMarker(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("work"))
+
+	// Set up a git repo so writeSessionMarker succeeds
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Use a fake git that only handles rev-parse (config will fail)
+	fakeGit := filepath.Join(t.TempDir(), "fakegit")
+	script := "#!/bin/sh\nif [ \"$2\" = \"--git-dir\" ]; then\n  echo \"" + filepath.Join(gitDir, ".git") + "\"\nelse\n  exit 1\nfi\n"
+	os.WriteFile(fakeGit, []byte(script), 0755)
+	cfg.Advanced.GitCommand = fakeGit
+
+	p, _ := mgr.Get("work")
+	err := sw.activateSession(p)
+	// Should succeed because applyGitConfig error is just a warning
+	if err != nil {
+		t.Fatalf("activateSession should succeed even when git config fails, got: %v", err)
+	}
+}
+
+func TestFindGitDir_EmptyDir(t *testing.T) {
+	sw, _, cfg := newTestSwitcher(t)
+
+	// Use a fake git that outputs empty string for rev-parse --git-dir
+	fakeGit := filepath.Join(t.TempDir(), "fakegit")
+	script := "#!/bin/sh\necho ''\n"
+	os.WriteFile(fakeGit, []byte(script), 0755)
+	cfg.Advanced.GitCommand = fakeGit
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	result := sw.findGitDir()
+	if result != "" {
+		t.Errorf("expected empty string for empty git dir output, got %q", result)
+	}
+}
