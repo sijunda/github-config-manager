@@ -35,7 +35,7 @@
 
 ### From Source (recommended today)
 ```bash
-git clone https://github.com/justjundana/github-config-manager.git
+git clone https://github.com/sijunda/github-config-manager.git
 cd github-config-manager
 make build          # produces ./bin/gcm
 make install        # installs to $(go env GOPATH)/bin/gcm (no sudo needed)
@@ -46,7 +46,7 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH` — typically `~/go/bin`.
 
 ### Via `go install`
 ```bash
-go install github.com/justjundana/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/github-config-manager/cmd/gcm@latest
 ```
 
 ### Homebrew / Binary (coming soon)

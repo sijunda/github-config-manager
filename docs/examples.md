@@ -10,7 +10,7 @@ Real-world workflows, recipes, and patterns for using GCM effectively.
 
 ```bash
 # Install
-git clone https://github.com/justjundana/github-config-manager.git
+git clone https://github.com/sijunda/github-config-manager.git
 cd github-config-manager && make build && make install
 
 # Set up shell integration

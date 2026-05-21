@@ -6,12 +6,12 @@ Get started with GCM in under 5 minutes.
 
 ```bash
 # Clone and build
-git clone https://github.com/justjundana/github-config-manager.git
+git clone https://github.com/sijunda/github-config-manager.git
 cd github-config-manager
 make build && make install
 
 # Or via go install
-go install github.com/justjundana/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/github-config-manager/cmd/gcm@latest
 ```
 
 Make sure `$(go env GOPATH)/bin` is on your `PATH` (typically `~/go/bin`).

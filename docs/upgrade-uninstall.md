@@ -17,7 +17,7 @@ make build && make install
 ### Via `go install`
 
 ```bash
-go install github.com/justjundana/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/github-config-manager/cmd/gcm@latest
 ```
 
 ### Verify the Upgrade
@@ -188,7 +188,7 @@ If you change your mind, reinstalling is straightforward:
 
 ```bash
 # Install
-go install github.com/justjundana/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/github-config-manager/cmd/gcm@latest
 
 # Restore from backup
 gcm backup restore ~/Desktop/gcm-backup-YYYY-MM-DD.tar.gz
