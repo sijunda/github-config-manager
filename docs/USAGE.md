@@ -87,7 +87,7 @@ Run `gcm doctor` any time to verify the environment.
 ### Option A — build from source
 
 ```bash
-git clone https://github.com/sijunda/github-config-manager.git
+git clone https://github.com/justjundana/github-config-manager.git
 cd github-config-manager
 make build            # produces ./bin/gcm
 make install          # copies to $(go env GOPATH)/bin/gcm (no sudo)
@@ -111,7 +111,7 @@ gcm version
 ### Option C — `go install`
 
 ```bash
-go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+go install github.com/justjundana/github-config-manager/cmd/gcm@latest
 ```
 
 Make sure `$(go env GOPATH)/bin` is on your `PATH`.
