@@ -165,7 +165,7 @@ Step 4/4: GitHub (Optional)
 
 #### "GitHub username"
 
-**What it is:** Your GitHub handle (e.g., `justjundana`, `octocat`). This is stored in the profile for reference and used by GitHub-related commands.
+**What it is:** Your GitHub handle (e.g., `sijunda`, `octocat`). This is stored in the profile for reference and used by GitHub-related commands.
 
 **What to enter:**
 - Your GitHub username (the one in `github.com/YOUR-USERNAME`)
@@ -219,7 +219,7 @@ A long random string that proves you're authorized. Like a password, but:
 
 ```
 ✓ Authorization successful!
-  Logged in as justjundana (Muhammad Jundana)
+  Logged in as sijunda (Muhammad Jundana)
 ```
 
 ---

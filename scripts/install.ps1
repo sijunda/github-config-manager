@@ -137,7 +137,7 @@ function Get-LatestVersion {
     }
 
     try {
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/justjundana/github-config-manager/releases/latest" -TimeoutSec 30
+        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/sijunda/github-config-manager/releases/latest" -TimeoutSec 30
         return $response.tag_name
     }
     catch {
@@ -219,7 +219,7 @@ function Download-Binary {
     $arch = $parts[1]
 
     # Construct download URL
-    $downloadUrl = "https://github.com/justjundana/github-config-manager/releases/download/$DownloadVersion/gcm-$os-$arch.exe"
+    $downloadUrl = "https://github.com/sijunda/github-config-manager/releases/download/$DownloadVersion/gcm-$os-$arch.exe"
     $binaryPath = Join-Path $InstallDir "gcm.exe"
 
     Print-Step "Downloading gcm $DownloadVersion for $Platform..."

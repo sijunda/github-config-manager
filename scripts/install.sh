@@ -256,9 +256,9 @@ get_latest_version() {
 
     local version=""
     if command -v curl >/dev/null 2>&1; then
-        version=$(curl -s https://api.github.com/repos/justjundana/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(curl -s https://api.github.com/repos/sijunda/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     elif command -v wget >/dev/null 2>&1; then
-        version=$(wget -qO- https://api.github.com/repos/justjundana/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(wget -qO- https://api.github.com/repos/sijunda/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     else
         print_error "Either curl or wget is required to download gcm"
         exit 1
@@ -361,7 +361,7 @@ download_binary() {
     fi
 
     # Construct download URL
-    local download_url="https://github.com/justjundana/github-config-manager/releases/download/${version}/gcm-${os}-${arch}"
+    local download_url="https://github.com/sijunda/github-config-manager/releases/download/${version}/gcm-${os}-${arch}"
     if [[ "$os" == "windows" ]]; then
         download_url="${download_url}.exe"
     fi
