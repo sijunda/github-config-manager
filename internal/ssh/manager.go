@@ -329,6 +329,19 @@ func (m *Manager) AddToAgent(keyPath string) error {
 	return nil
 }
 
+// RemoveFromAgent removes an SSH key from the ssh-agent.
+func (m *Manager) RemoveFromAgent(keyPath string) error {
+	if _, err := exec.LookPath("ssh-add"); err != nil {
+		return nil // ssh-agent not available, nothing to do
+	}
+	expanded := expandPath(keyPath)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ssh-add", "-d", expanded)
+	_ = cmd.Run() // ignore error — key might not be loaded
+	return nil
+}
+
 // GetPublicKey reads and returns the public key content.
 func (m *Manager) GetPublicKey(keyPath string) (string, error) {
 	expanded := expandPath(keyPath)

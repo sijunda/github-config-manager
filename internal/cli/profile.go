@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -423,6 +424,12 @@ func newProfileDeleteCmd() *cobra.Command {
 			ctr.AuditLogger.Log(audit.ActionProfileDelete, profileName, nil, nil)
 			ui.Success("Profile %q deleted", profileName)
 
+			// Read SSH public key before deleting files (needed for GitHub deletion later)
+			var sshPubKey string
+			if p.SSH != nil && p.SSH.KeyPath != "" {
+				sshPubKey, _ = ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
+			}
+
 			// Clean up associated SSH key files
 			if p.SSH != nil && p.SSH.KeyPath != "" {
 				privKey := p.SSH.KeyPath
@@ -438,9 +445,55 @@ func newProfileDeleteCmd() *cobra.Command {
 					ui.Success("SSH key files removed")
 					ui.Detail("Removed", privKey)
 				}
+				// Remove from ssh-agent
+				ctr.SSHManager.RemoveFromAgent(privKey)
 			}
 
-			// Clean up GitHub token
+			// Clean up associated GPG key
+			if p.GPG != nil && p.GPG.KeyID != "" {
+				if ctr.GPGManager.IsInstalled() {
+					if err := ctr.GPGManager.Delete(p.GPG.KeyID); err != nil {
+						ui.Warning("Could not delete GPG key %s: %v", p.GPG.KeyID, err)
+					} else {
+						ui.Success("GPG key deleted from keyring")
+						ui.Detail("Key ID", p.GPG.KeyID)
+					}
+				}
+			}
+
+			// Clean up GitHub keys and token
+			token, _ := ctr.GitHubClient.LoadToken(profileName)
+			if token != "" {
+				ctr.GitHubClient.SetToken(token)
+				ctx := context.Background()
+
+				// Offer to delete SSH key from GitHub
+				if sshPubKey != "" {
+					remove, askErr := ui.AskConfirm("Also delete SSH key from GitHub?", true)
+					if askErr == nil && remove {
+						deleted, delErr := ctr.GitHubClient.DeleteSSHKey(ctx, sshPubKey)
+						if delErr != nil {
+							ui.Warning("Could not delete SSH key from GitHub: %v", delErr)
+						} else if deleted {
+							ui.Success("SSH key deleted from GitHub")
+						}
+					}
+				}
+
+				// Offer to delete GPG key from GitHub
+				if p.GPG != nil && p.GPG.KeyID != "" {
+					remove, askErr := ui.AskConfirm("Also delete GPG key from GitHub?", true)
+					if askErr == nil && remove {
+						deleted, delErr := ctr.GitHubClient.DeleteGPGKey(ctx, p.GPG.KeyID)
+						if delErr != nil {
+							ui.Warning("Could not delete GPG key from GitHub: %v", delErr)
+						} else if deleted {
+							ui.Success("GPG key deleted from GitHub")
+						}
+					}
+				}
+			}
+
 			if delErr := ctr.GitHubClient.DeleteToken(profileName); delErr == nil {
 				ui.Success("GitHub token removed")
 			}

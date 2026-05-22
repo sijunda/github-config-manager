@@ -2156,3 +2156,226 @@ func TestNormalizeSSHKey(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteSSHKey_Found(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/user/keys" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]SSHKeyResponse{
+				{ID: 42, Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA user@host", Title: "my-key"},
+			})
+			return
+		}
+		if r.Method == "DELETE" && r.URL.Path == "/user/keys/42" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	c.SetToken("test-token")
+
+	deleted, err := c.DeleteSSHKey(context.Background(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA comment")
+	if err != nil {
+		t.Fatalf("DeleteSSHKey: %v", err)
+	}
+	if !deleted {
+		t.Error("expected key to be deleted")
+	}
+}
+
+func TestDeleteSSHKey_NotFound(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]SSHKeyResponse{
+			{ID: 1, Key: "ssh-ed25519 BBBBB other@host", Title: "other"},
+		})
+	})
+	c.SetToken("test-token")
+
+	deleted, err := c.DeleteSSHKey(context.Background(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA my-key")
+	if err != nil {
+		t.Fatalf("DeleteSSHKey: %v", err)
+	}
+	if deleted {
+		t.Error("expected key to NOT be deleted")
+	}
+}
+
+func TestDeleteSSHKey_ListError(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("bad credentials"))
+	})
+	c.SetToken("test-token")
+
+	_, err := c.DeleteSSHKey(context.Background(), "ssh-ed25519 AAAA")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestDeleteSSHKey_DeleteError(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/user/keys" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]SSHKeyResponse{
+				{ID: 42, Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA user@host", Title: "my-key"},
+			})
+			return
+		}
+		if r.Method == "DELETE" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("server error"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	c.SetToken("test-token")
+
+	_, err := c.DeleteSSHKey(context.Background(), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA comment")
+	if err == nil {
+		t.Fatal("expected error on delete failure")
+	}
+}
+
+func TestDeleteGPGKey_Found(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/user/gpg_keys" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]GPGKeyResponse{
+				{ID: 99, KeyID: "ABC123DEF456", Email: "user@example.com"},
+			})
+			return
+		}
+		if r.Method == "DELETE" && r.URL.Path == "/user/gpg_keys/99" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	c.SetToken("test-token")
+
+	deleted, err := c.DeleteGPGKey(context.Background(), "abc123def456") // case-insensitive
+	if err != nil {
+		t.Fatalf("DeleteGPGKey: %v", err)
+	}
+	if !deleted {
+		t.Error("expected key to be deleted")
+	}
+}
+
+func TestDeleteGPGKey_NotFound(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]GPGKeyResponse{
+			{ID: 1, KeyID: "OTHER999", Email: "other@example.com"},
+		})
+	})
+	c.SetToken("test-token")
+
+	deleted, err := c.DeleteGPGKey(context.Background(), "ABC123")
+	if err != nil {
+		t.Fatalf("DeleteGPGKey: %v", err)
+	}
+	if deleted {
+		t.Error("expected key to NOT be deleted")
+	}
+}
+
+func TestDeleteGPGKey_ListError(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("forbidden"))
+	})
+	c.SetToken("test-token")
+
+	_, err := c.DeleteGPGKey(context.Background(), "ABC123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestDeleteGPGKey_DeleteError(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" && r.URL.Path == "/user/gpg_keys" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]GPGKeyResponse{
+				{ID: 99, KeyID: "ABC123DEF456", Email: "user@example.com"},
+			})
+			return
+		}
+		if r.Method == "DELETE" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("server error"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	c.SetToken("test-token")
+
+	_, err := c.DeleteGPGKey(context.Background(), "abc123def456")
+	if err == nil {
+		t.Fatal("expected error on delete failure")
+	}
+}
+
+func TestApiDelete_Success(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "DELETE" {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.Header.Get("Authorization") != "token test-token" {
+			t.Errorf("missing or wrong Authorization header")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c.SetToken("test-token")
+
+	err := c.apiDelete(context.Background(), "/some/resource/1")
+	if err != nil {
+		t.Fatalf("apiDelete: %v", err)
+	}
+}
+
+func TestApiDelete_Error(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	})
+	c.SetToken("test-token")
+
+	err := c.apiDelete(context.Background(), "/some/resource/999")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Errorf("error should contain status code: %v", err)
+	}
+}
+
+func TestApiDelete_NetworkError(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c.SetToken("test-token")
+	// Point to an invalid URL to trigger httpClient.Do error
+	c.apiURL = "http://127.0.0.1:1" // port 1 is unlikely to be open
+
+	err := c.apiDelete(context.Background(), "/some/resource")
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+}
+
+func TestApiDelete_InvalidURL(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	c.SetToken("test-token")
+	c.apiURL = "://invalid"
+
+	err := c.apiDelete(context.Background(), "/test")
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+}

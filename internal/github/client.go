@@ -500,6 +500,45 @@ func (c *Client) SSHKeyExists(ctx context.Context, publicKey string) (bool, erro
 	return false, nil
 }
 
+// DeleteSSHKey removes an SSH key from GitHub by matching the public key content.
+// Returns true if a key was found and deleted, false if not found.
+func (c *Client) DeleteSSHKey(ctx context.Context, publicKey string) (bool, error) {
+	keys, err := c.ListSSHKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+	localKey := normalizeSSHKey(publicKey)
+	for _, k := range keys {
+		if normalizeSSHKey(k.Key) == localKey {
+			path := fmt.Sprintf("/user/keys/%d", k.ID)
+			if err := c.apiDelete(ctx, path); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DeleteGPGKey removes a GPG key from GitHub by matching the key ID.
+// Returns true if a key was found and deleted, false if not found.
+func (c *Client) DeleteGPGKey(ctx context.Context, keyID string) (bool, error) {
+	keys, err := c.ListGPGKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, k := range keys {
+		if strings.EqualFold(k.KeyID, keyID) {
+			path := fmt.Sprintf("/user/gpg_keys/%d", k.ID)
+			if err := c.apiDelete(ctx, path); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // GPGKeyExists checks if a GPG key ID is already uploaded to GitHub.
 func (c *Client) GPGKeyExists(ctx context.Context, keyID string) (bool, error) {
 	keys, err := c.ListGPGKeys(ctx)
@@ -572,6 +611,28 @@ func (c *Client) apiPost(ctx context.Context, path string, payload, result inter
 
 	if result != nil {
 		return json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(result)
+	}
+
+	return nil
+}
+
+func (c *Client) apiDelete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, "DELETE", c.apiURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "token "+c.token)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil

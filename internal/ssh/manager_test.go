@@ -1975,3 +1975,78 @@ func TestKeyPath_RelError(t *testing.T) {
 		t.Fatalf("expected traversal error, got: %v", err)
 	}
 }
+
+func TestRemoveFromAgent_SSHAddNotFound(t *testing.T) {
+	m := newTestManager(t)
+	// Use empty PATH so ssh-add is not found
+	t.Setenv("PATH", t.TempDir())
+
+	err := m.RemoveFromAgent("/tmp/fake_key")
+	if err != nil {
+		t.Fatalf("RemoveFromAgent should return nil when ssh-add not found, got: %v", err)
+	}
+}
+
+func TestRemoveFromAgent_Success(t *testing.T) {
+	m := newTestManager(t)
+	tmp := t.TempDir()
+
+	// Create a fake ssh-add that succeeds
+	binDir := filepath.Join(tmp, "bin")
+	os.MkdirAll(binDir, 0o755)
+	fakeSSHAdd := filepath.Join(binDir, "ssh-add")
+	os.WriteFile(fakeSSHAdd, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	t.Setenv("PATH", binDir)
+
+	err := m.RemoveFromAgent("/tmp/some_key")
+	if err != nil {
+		t.Fatalf("RemoveFromAgent: %v", err)
+	}
+}
+
+func TestRemoveFromAgent_CommandFails_StillReturnsNil(t *testing.T) {
+	m := newTestManager(t)
+	tmp := t.TempDir()
+
+	// Create a fake ssh-add that fails (key not loaded)
+	binDir := filepath.Join(tmp, "bin")
+	os.MkdirAll(binDir, 0o755)
+	fakeSSHAdd := filepath.Join(binDir, "ssh-add")
+	os.WriteFile(fakeSSHAdd, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	t.Setenv("PATH", binDir)
+
+	// Should still return nil even when ssh-add -d fails
+	err := m.RemoveFromAgent("/tmp/nonexistent_key")
+	if err != nil {
+		t.Fatalf("RemoveFromAgent should return nil on failure, got: %v", err)
+	}
+}
+
+func TestRemoveFromAgent_ExpandsPath(t *testing.T) {
+	m := newTestManager(t)
+	tmp := t.TempDir()
+
+	// Create a fake ssh-add that writes args to a file for verification
+	binDir := filepath.Join(tmp, "bin")
+	os.MkdirAll(binDir, 0o755)
+	argsFile := filepath.Join(tmp, "args.txt")
+	fakeSSHAdd := filepath.Join(binDir, "ssh-add")
+	script := "#!/bin/sh\necho \"$@\" > " + argsFile + "\nexit 0\n"
+	os.WriteFile(fakeSSHAdd, []byte(script), 0o755)
+	t.Setenv("PATH", binDir)
+	t.Setenv("HOME", tmp)
+
+	err := m.RemoveFromAgent("~/testkey")
+	if err != nil {
+		t.Fatalf("RemoveFromAgent: %v", err)
+	}
+
+	data, _ := os.ReadFile(argsFile)
+	args := strings.TrimSpace(string(data))
+	if !strings.Contains(args, "-d") {
+		t.Errorf("expected ssh-add args to contain -d, got: %s", args)
+	}
+	if strings.Contains(args, "~") {
+		t.Errorf("expected path to be expanded, got: %s", args)
+	}
+}

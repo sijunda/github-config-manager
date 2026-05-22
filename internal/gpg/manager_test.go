@@ -1802,3 +1802,184 @@ esac
 		t.Errorf("version = %q, want empty", ver)
 	}
 }
+
+func TestDelete_Success(t *testing.T) {
+	tmp := t.TempDir()
+	// Fake GPG that returns a fingerprint, then succeeds on delete
+	script := `#!/bin/sh
+case "$1" in
+	--with-colons)
+		printf '%s\n' "pub:-:4096:1:FAKEKEY123:1700000000:0::-:::scESC:"
+		printf '%s\n' "fpr:::::::::AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555:"
+		exit 0
+		;;
+	--batch)
+		exit 0
+		;;
+	*)
+		exit 1
+		;;
+esac
+`
+	os.WriteFile(filepath.Join(tmp, "gpg"), []byte(script), 0o755)
+	t.Setenv("PATH", tmp)
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	err := m.Delete("FAKEKEY123")
+	if err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+}
+
+func TestDelete_GPGNotInstalled(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("PATH", tmp) // empty PATH, no gpg
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	err := m.Delete("SOMEKEY")
+	if err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("expected 'not installed' error, got: %v", err)
+	}
+}
+
+func TestDelete_KeyNotFound(t *testing.T) {
+	tmp := t.TempDir()
+	// Fake GPG where --with-colons fails (key not found)
+	script := `#!/bin/sh
+case "$1" in
+	--with-colons)
+		exit 1
+		;;
+	*)
+		exit 1
+		;;
+esac
+`
+	os.WriteFile(filepath.Join(tmp, "gpg"), []byte(script), 0o755)
+	t.Setenv("PATH", tmp)
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	err := m.Delete("NOSUCHKEY")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected 'not found' error, got: %v", err)
+	}
+}
+
+func TestDelete_NoFingerprint(t *testing.T) {
+	tmp := t.TempDir()
+	// Fake GPG that returns output but no fpr line
+	script := `#!/bin/sh
+case "$1" in
+	--with-colons)
+		printf '%s\n' "pub:-:4096:1:FAKEKEY123:1700000000:0::-:::scESC:"
+		printf '%s\n' "uid:-::::1700000000::0000000000000000::Fake <f@e.com>:"
+		exit 0
+		;;
+	*)
+		exit 1
+		;;
+esac
+`
+	os.WriteFile(filepath.Join(tmp, "gpg"), []byte(script), 0o755)
+	t.Setenv("PATH", tmp)
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	err := m.Delete("FAKEKEY123")
+	if err == nil || !strings.Contains(err.Error(), "could not find fingerprint") {
+		t.Fatalf("expected 'could not find fingerprint' error, got: %v", err)
+	}
+}
+
+func TestDelete_DeletePublicKeyFails(t *testing.T) {
+	tmp := t.TempDir()
+	// Fake GPG: fingerprint works, delete-secret-keys works, delete-keys fails
+	script := `#!/bin/sh
+case "$1" in
+	--with-colons)
+		printf '%s\n' "fpr:::::::::AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555:"
+		exit 0
+		;;
+	--batch)
+		# $3 is the operation: --delete-secret-keys or --delete-keys
+		if [ "$3" = "--delete-keys" ]; then
+			echo "delete failed"
+			exit 1
+		fi
+		exit 0
+		;;
+	*)
+		exit 1
+		;;
+esac
+`
+	os.WriteFile(filepath.Join(tmp, "gpg"), []byte(script), 0o755)
+	t.Setenv("PATH", tmp)
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	err := m.Delete("FAKEKEY123")
+	if err == nil || !strings.Contains(err.Error(), "failed to delete") {
+		t.Fatalf("expected 'failed to delete' error, got: %v", err)
+	}
+}
+
+func TestDelete_DeleteSecretKeyFails_StillContinues(t *testing.T) {
+	tmp := t.TempDir()
+	// Fake GPG: fingerprint works, delete-secret-keys fails, delete-keys succeeds
+	script := `#!/bin/sh
+case "$1" in
+	--with-colons)
+		printf '%s\n' "fpr:::::::::AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555:"
+		exit 0
+		;;
+	--batch)
+		if [ "$3" = "--delete-secret-keys" ]; then
+			echo "no secret key"
+			exit 1
+		fi
+		exit 0
+		;;
+	*)
+		exit 1
+		;;
+esac
+`
+	os.WriteFile(filepath.Join(tmp, "gpg"), []byte(script), 0o755)
+	t.Setenv("PATH", tmp)
+	t.Setenv("HOME", tmp)
+
+	cfg := config.DefaultConfig()
+	cfg.Advanced.GPGCommand = "gpg"
+	log := logger.New(logger.LevelError, os.Stderr)
+	m := NewManager(cfg, log)
+
+	// Should succeed even though secret key deletion failed
+	err := m.Delete("FAKEKEY123")
+	if err != nil {
+		t.Fatalf("Delete should succeed when only secret key deletion fails: %v", err)
+	}
+}

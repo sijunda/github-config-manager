@@ -247,6 +247,55 @@ func (m *Manager) TestSigning(keyID string) error {
 	return nil
 }
 
+// Delete removes a GPG key (secret + public) from the local keyring.
+func (m *Manager) Delete(keyID string) error {
+	gpgCmd := m.resolveGPGCommand()
+	if gpgCmd == "" {
+		return fmt.Errorf("GPG is not installed")
+	}
+
+	// Get the full fingerprint (GPG 2.1+ requires it for deletion)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, gpgCmd, "--with-colons", "--fingerprint", keyID).Output()
+	if err != nil {
+		return fmt.Errorf("GPG key %s not found in keyring", keyID)
+	}
+
+	var fingerprint string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "fpr:") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 10 && parts[9] != "" {
+				fingerprint = parts[9]
+				break
+			}
+		}
+	}
+	if fingerprint == "" {
+		return fmt.Errorf("could not find fingerprint for GPG key %s", keyID)
+	}
+
+	// Delete secret key first
+	ctx2, cancel2 := context.WithTimeout(context.Background(), defaultCommandTimeout)
+	defer cancel2()
+	cmd := exec.CommandContext(ctx2, gpgCmd, "--batch", "--yes", "--delete-secret-keys", fingerprint)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		m.log.Debug("delete secret key failed", logger.F("output", string(out)))
+		// Not fatal — key might not have a secret component
+	}
+
+	// Delete public key
+	ctx3, cancel3 := context.WithTimeout(context.Background(), defaultCommandTimeout)
+	defer cancel3()
+	cmd = exec.CommandContext(ctx3, gpgCmd, "--batch", "--yes", "--delete-keys", fingerprint)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to delete GPG key %s: %s: %w", keyID, strings.TrimSpace(string(out)), err)
+	}
+
+	return nil
+}
+
 // IsInstalled checks if GPG is available on the system.
 func (m *Manager) IsInstalled() bool {
 	return m.resolveGPGCommand() != ""
