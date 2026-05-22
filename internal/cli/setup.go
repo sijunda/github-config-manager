@@ -187,7 +187,7 @@ func runSetup(ctx context.Context) error {
 	ui.Print("GPG signing proves commits came from you (shows 'Verified' badge).")
 	ui.Blank()
 
-	enableGPG, err := ui.AskConfirm("Enable commit signing?", false)
+	enableGPG, err := ui.AskConfirm("Enable commit signing?", true)
 	if err != nil {
 		return err
 	}
@@ -340,6 +340,9 @@ func runSetup(ctx context.Context) error {
 		ui.Info("Skipped — you can run %s later", ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
 	}
 
+	// After GitHub auth, offer to upload SSH/GPG keys if they exist
+	setupUploadKeys(ctx, profileName)
+
 	ui.Blank()
 	ui.Divider()
 
@@ -402,4 +405,70 @@ func runSetup(ctx context.Context) error {
 	ui.Blank()
 
 	return nil
+}
+
+func setupUploadKeys(ctx context.Context, profileName string) {
+	// Check if we have a valid token for this profile
+	token, err := ctr.GitHubClient.LoadToken(profileName)
+	if err != nil || token == "" {
+		return
+	}
+	ctr.GitHubClient.SetToken(token)
+
+	p, err := ctr.ProfileManager.Get(profileName)
+	if err != nil || p == nil {
+		return
+	}
+
+	uploaded := false
+
+	// Upload SSH key if it exists and isn't already on GitHub
+	if p.SSH != nil && p.SSH.KeyPath != "" {
+		pubKey, pubErr := ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
+		if pubErr == nil && pubKey != "" {
+			exists, checkErr := ctr.GitHubClient.SSHKeyExists(ctx, pubKey)
+			if checkErr == nil && !exists {
+				ui.Blank()
+				upload, askErr := ui.AskConfirm("Upload SSH key to GitHub?", true)
+				if askErr == nil && upload {
+					title := fmt.Sprintf("gcm-%s", profileName)
+					if uploadErr := ctr.GitHubClient.UploadSSHKey(ctx, title, pubKey); uploadErr != nil {
+						ui.Warning("Could not upload SSH key: %v", uploadErr)
+					} else {
+						ui.Success("SSH key uploaded to GitHub")
+						uploaded = true
+					}
+				}
+			} else if checkErr == nil && exists {
+				ui.Blank()
+				ui.Success("SSH key already on GitHub")
+			}
+		}
+	}
+
+	// Upload GPG key if it exists and isn't already on GitHub
+	if p.GPG != nil && p.GPG.KeyID != "" {
+		exists, checkErr := ctr.GitHubClient.GPGKeyExists(ctx, p.GPG.KeyID)
+		if checkErr == nil && !exists {
+			if !uploaded {
+				ui.Blank()
+			}
+			upload, askErr := ui.AskConfirm("Upload GPG key to GitHub?", true)
+			if askErr == nil && upload {
+				pubKey, gpgErr := ctr.GPGManager.GetPublicKey(p.GPG.KeyID)
+				if gpgErr != nil {
+					ui.Warning("Could not read GPG public key: %v", gpgErr)
+				} else if uploadErr := ctr.GitHubClient.UploadGPGKey(ctx, pubKey); uploadErr != nil {
+					ui.Warning("Could not upload GPG key: %v", uploadErr)
+				} else {
+					ui.Success("GPG key uploaded to GitHub")
+				}
+			}
+		} else if checkErr == nil && exists {
+			if !uploaded {
+				ui.Blank()
+			}
+			ui.Success("GPG key already on GitHub")
+		}
+	}
 }

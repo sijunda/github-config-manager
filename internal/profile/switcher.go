@@ -180,6 +180,53 @@ func (s *Switcher) ClearGlobalIdentity() error {
 	return nil
 }
 
+// Deactivate removes git config and markers for a profile that is being deleted.
+// It detects the scope where the profile is active and clears accordingly.
+func (s *Switcher) Deactivate(name string) {
+	current, scope, err := s.Current()
+	if err != nil || current != name {
+		return // profile is not active, nothing to do
+	}
+
+	gitCmd := s.cfg.Advanced.GitCommand
+	keys := []string{"user.name", "user.email", "user.signingkey", "commit.gpgsign"}
+
+	switch scope {
+	case ScopeGlobal:
+		for _, key := range keys {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+			cmd := exec.CommandContext(ctx, gitCmd, "config", "--global", "--unset-all", key)
+			_ = cmd.Run()
+			cancel()
+		}
+		// Clear default profile reference
+		s.cfg.DefaultProfile = ""
+
+	case ScopeLocal:
+		for _, key := range keys {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+			cmd := exec.CommandContext(ctx, gitCmd, "config", "--local", "--unset-all", key)
+			_ = cmd.Run()
+			cancel()
+		}
+		// Remove .gcm-profile marker
+		cwd, cwdErr := swGetwdFn()
+		if cwdErr == nil {
+			os.Remove(filepath.Join(cwd, s.cfg.AutoSwitch.ProjectFile))
+		}
+
+	case ScopeSession:
+		for _, key := range keys {
+			ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+			cmd := exec.CommandContext(ctx, gitCmd, "config", "--local", "--unset-all", key)
+			_ = cmd.Run()
+			cancel()
+		}
+		// Remove session marker
+		s.clearSessionMarker()
+	}
+}
+
 func (s *Switcher) activateGlobal(p *Profile) error {
 	return s.applyGitConfig(p, "--global")
 }

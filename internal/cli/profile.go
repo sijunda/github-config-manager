@@ -187,7 +187,7 @@ func profileCreateInteractive(profileName string, fromTemplate string) error {
 	}
 
 	ui.SubHeader("Step 3/4: GPG Signing")
-	enableGPG, err := ui.AskConfirm("Enable commit signing?", false)
+	enableGPG, err := ui.AskConfirm("Enable commit signing?", true)
 	if err != nil {
 		return err
 	}
@@ -566,7 +566,10 @@ func newProfileDeleteCmd() *cobra.Command {
 				}
 			}
 
-			if err := ctr.ProfileManager.Delete(profileName); err != nil {
+			// Deactivate git config before deleting (must happen while profile still exists)
+			ctr.ProfileSwitcher.Deactivate(profileName)
+
+			if err := ctr.ProfileManager.Delete(profileName, true); err != nil {
 				ctr.AuditLogger.Log(audit.ActionProfileDelete, profileName, nil, err)
 				return fmt.Errorf("could not delete profile %q\n\n  Make sure the profile exists: gcm profile list", profileName)
 			}
@@ -577,6 +580,32 @@ func newProfileDeleteCmd() *cobra.Command {
 			var sshPubKey string
 			if p.SSH != nil && p.SSH.KeyPath != "" {
 				sshPubKey, _ = ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
+			}
+
+			// Clean up GitHub keys (must happen before local file deletion)
+			var sshDeletedFromGH, gpgDeletedFromGH bool
+			token, _ := ctr.GitHubClient.LoadToken(profileName)
+			if token != "" {
+				ctr.GitHubClient.SetToken(token)
+				ctx := context.Background()
+
+				if sshPubKey != "" {
+					deleted, delErr := ctr.GitHubClient.DeleteSSHKey(ctx, sshPubKey)
+					if delErr != nil {
+						ui.Warning("Could not delete SSH key from GitHub: %v", delErr)
+					} else if deleted {
+						sshDeletedFromGH = true
+					}
+				}
+
+				if p.GPG != nil && p.GPG.KeyID != "" {
+					deleted, delErr := ctr.GitHubClient.DeleteGPGKey(ctx, p.GPG.KeyID)
+					if delErr != nil {
+						ui.Warning("Could not delete GPG key from GitHub: %v", delErr)
+					} else if deleted {
+						gpgDeletedFromGH = true
+					}
+				}
 			}
 
 			// Clean up associated SSH key files
@@ -590,56 +619,34 @@ func newProfileDeleteCmd() *cobra.Command {
 				if err := os.Remove(pubKey); err == nil {
 					removedAny = true
 				}
-				if removedAny {
-					ui.Success("SSH key files removed")
-					ui.Detail("Removed", privKey)
+				if removedAny || sshDeletedFromGH {
+					if sshDeletedFromGH {
+						ui.Success("SSH key removed (local + GitHub)")
+					} else {
+						ui.Success("SSH key removed (local)")
+					}
+					ui.Detail("Key", privKey)
 				}
-				// Remove from ssh-agent
 				ctr.SSHManager.RemoveFromAgent(privKey)
 			}
 
 			// Clean up associated GPG key
 			if p.GPG != nil && p.GPG.KeyID != "" {
+				gpgLocalDeleted := false
 				if ctr.GPGManager.IsInstalled() {
 					if err := ctr.GPGManager.Delete(p.GPG.KeyID); err != nil {
-						ui.Warning("Could not delete GPG key %s: %v", p.GPG.KeyID, err)
+						ui.Warning("Could not delete GPG key from keyring: %v", err)
 					} else {
-						ui.Success("GPG key deleted from keyring")
-						ui.Detail("Key ID", p.GPG.KeyID)
+						gpgLocalDeleted = true
 					}
 				}
-			}
-
-			// Clean up GitHub keys and token
-			token, _ := ctr.GitHubClient.LoadToken(profileName)
-			if token != "" {
-				ctr.GitHubClient.SetToken(token)
-				ctx := context.Background()
-
-				// Offer to delete SSH key from GitHub
-				if sshPubKey != "" {
-					remove, askErr := ui.AskConfirm("Also delete SSH key from GitHub?", true)
-					if askErr == nil && remove {
-						deleted, delErr := ctr.GitHubClient.DeleteSSHKey(ctx, sshPubKey)
-						if delErr != nil {
-							ui.Warning("Could not delete SSH key from GitHub: %v", delErr)
-						} else if deleted {
-							ui.Success("SSH key deleted from GitHub")
-						}
+				if gpgLocalDeleted || gpgDeletedFromGH {
+					if gpgDeletedFromGH {
+						ui.Success("GPG key removed (keyring + GitHub)")
+					} else {
+						ui.Success("GPG key removed (keyring)")
 					}
-				}
-
-				// Offer to delete GPG key from GitHub
-				if p.GPG != nil && p.GPG.KeyID != "" {
-					remove, askErr := ui.AskConfirm("Also delete GPG key from GitHub?", true)
-					if askErr == nil && remove {
-						deleted, delErr := ctr.GitHubClient.DeleteGPGKey(ctx, p.GPG.KeyID)
-						if delErr != nil {
-							ui.Warning("Could not delete GPG key from GitHub: %v", delErr)
-						} else if deleted {
-							ui.Success("GPG key deleted from GitHub")
-						}
-					}
+					ui.Detail("Key ID", p.GPG.KeyID)
 				}
 			}
 

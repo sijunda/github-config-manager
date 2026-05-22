@@ -131,7 +131,7 @@ func (m *Manager) Update(p *Profile) error {
 }
 
 // Delete removes a profile.
-func (m *Manager) Delete(name string) error {
+func (m *Manager) Delete(name string, force ...bool) error {
 	path, err := m.profilePath(name)
 	if err != nil {
 		return err
@@ -140,19 +140,28 @@ func (m *Manager) Delete(name string) error {
 		return errNotFound(name)
 	}
 
-	// Safety: cannot delete active profile
-	current, _ := m.currentLocalProfile()
-	if current == name {
-		return errCannotDeleteActive(name)
-	}
+	skipSafety := len(force) > 0 && force[0]
 
-	// Safety: cannot delete default profile
-	if m.cfg.DefaultProfile == name {
-		return errCannotDeleteDefault(name)
+	if !skipSafety {
+		// Safety: cannot delete active profile
+		current, _ := m.currentLocalProfile()
+		if current == name {
+			return errCannotDeleteActive(name)
+		}
+
+		// Safety: cannot delete default profile
+		if m.cfg.DefaultProfile == name {
+			return errCannotDeleteDefault(name)
+		}
 	}
 
 	if err := m.fileSvc.Delete(path); err != nil {
 		return fmt.Errorf("deleting profile: %w", err)
+	}
+
+	// Clear default profile reference if we just deleted it
+	if m.cfg.DefaultProfile == name {
+		m.cfg.DefaultProfile = ""
 	}
 
 	m.log.Debug("Profile deleted", logger.F("profile", name))

@@ -161,6 +161,10 @@ Examples:
 			}
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
+
+			// Offer to upload SSH/GPG keys if they exist
+			setupUploadKeys(cmd.Context(), profileName)
+
 			return nil
 		},
 	}
@@ -456,6 +460,9 @@ Examples:
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
+			// Offer to upload SSH/GPG keys if they exist
+			setupUploadKeys(cmd.Context(), profileName)
+
 			return nil
 		},
 	}
@@ -569,6 +576,9 @@ Examples:
 
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
+
+			// Offer to upload SSH/GPG keys if they exist
+			setupUploadKeys(cmd.Context(), profileName)
 
 			return nil
 		},
