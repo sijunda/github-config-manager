@@ -16,8 +16,8 @@ func newInitCmd() *cobra.Command {
 and register GCM as the git credential helper for GitHub.
 
 Examples:
-  gcm init            # Auto-detect shell
-  gcm init --shell zsh`,
+  gcm init                          # Auto-detect shell
+  SHELL=/bin/zsh gcm init           # Override detection via SHELL env var`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			shellType := ctr.ShellManager.DetectShell()
 			if shellType == shell.ShellUnknown {

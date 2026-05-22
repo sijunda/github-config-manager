@@ -74,7 +74,6 @@ sequenceDiagram
     participant Switcher
     participant ProfileMgr as Profile Manager
     participant Git
-    participant SSH as SSH Config
     participant Agent as SSH Agent
     participant Config
     participant AuditLog as Audit Logger
@@ -89,7 +88,6 @@ sequenceDiagram
     Switcher->>Git: git config core.editor "code"
     Switcher->>Git: git config commit.gpgsign "true"
     
-    Switcher->>SSH: Update ~/.ssh/config Host block
     Switcher->>Agent: ssh-add ~/.ssh/id_ed25519_work
     
     Switcher->>Config: Set default_profile = "work"
@@ -117,7 +115,7 @@ flowchart TD
     Same -->|Yes| End
     Same -->|No| Activate[Activate new profile]
     Activate --> UpdateGit[Update Git config]
-    UpdateGit --> UpdateSSH[Update SSH config + agent]
+    UpdateGit --> UpdateSSH[Load SSH key into agent]
     UpdateSSH --> UpdatePrompt[Update prompt indicator]
     UpdatePrompt --> End
 ```

@@ -291,12 +291,11 @@ gcm use work --dry-run    # preview changes, apply nothing
 What `gcm use` does:
 
 - Writes Git config (`user.name`, `user.email`, `core.editor`, `commit.gpgsign`, `user.signingkey`)
-- Updates `~/.ssh/config` Host block for `github.com`
-- Loads the SSH key into the agent (decrypting the passphrase if stored)
-- **Clears git credentials** from the previous profile
-- **Stores git credentials** for the new profile (if token is available)
+- Loads the SSH key into the ssh-agent via `ssh-add` (if configured and key file exists)
 - **Pins `credential.https://github.com.username`** so git only uses this profile's account
-- Sets `GCM_ACTIVE_PROFILE` for the prompt indicator
+- If GCM is the credential helper: git will ask GCM dynamically for credentials
+- If GCM is NOT the credential helper (legacy): **clears old credentials** and **stores new credentials** for the profile
+- Verifies the GitHub token validity (best-effort, warns if expired)
 
 > **Credential isolation:** After switching, `git push`/`git clone` will authenticate as the active profile's GitHub account only. Other stored credentials cannot bleed through.
 
@@ -724,7 +723,7 @@ Maintenance
 ### Profile doesn't auto-switch on `cd`
 
 - The directory (or one of its parents) needs a `.gcm-profile` file. Create it with `gcm use <name> --local`.
-- Make sure shell integration is active: `echo $GCM_ACTIVE_PROFILE` should change after `cd`.
+- Make sure shell integration is active: the prompt indicator (`$_GCM_PROMPT`) should change after `cd`. Run `gcm current` to verify the active profile.
 
 ### `Permissions 0644 for 'id_ed25519_work' are too open`
 

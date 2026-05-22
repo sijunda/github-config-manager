@@ -266,7 +266,7 @@ Actions logged include:
 
 | Variable              | Description                                   |
 | --------------------- | --------------------------------------------- |
-| `GCM_ACTIVE_PROFILE`  | Set by shell hooks to the active profile name |
+| `_GCM_PROMPT`         | Shell variable set by precmd hook with active profile name (used in prompt) |
 | `SHELL`               | Used by `gcm init` to detect your shell       |
 
 ---

@@ -160,6 +160,7 @@ When running `gcm github login*` commands:
 ### Logout Behavior
 
 `gcm github logout` (with `--clear-credentials`, default true):
+- Only clears git credentials if the logged-out profile is the currently active one (prevents breaking another profile's auth)
 - Calls `git credential reject` to remove the profile's credentials from the OS credential store
 - On macOS this removes the entry from Keychain Access
 - On Windows this removes it from Credential Manager

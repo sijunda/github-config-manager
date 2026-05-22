@@ -91,11 +91,11 @@ Remove the GCM shell hook from your shell config file.
 If you want to reset your Git identity to manual management:
 
 ```bash
-# Remove GCM-managed SSH config entries
-# Edit ~/.ssh/config and remove GCM-related Host blocks
-
 # Remove any .gcm-profile files from your projects
 find ~/projects -name ".gcm-profile" -delete
+
+# Remove session markers from git repositories
+find ~/projects -path "*/.git/gcm-session" -delete
 
 # Set your Git identity manually
 git config --global user.name "Your Name"

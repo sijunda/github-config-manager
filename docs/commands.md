@@ -227,13 +227,13 @@ gcm use work --dry-run       # preview changes, apply nothing
 **What it does (non-dry-run):**
 1. Loads the profile from `~/.gcm/profiles/<name>.yaml`
 2. Writes Git config (`user.name`, `user.email`, `core.editor`, `commit.gpgsign`, `user.signingkey`)
-3. Updates `~/.ssh/config` Host block for `github.com`
-4. Loads the SSH key into the agent (decrypting passphrase if stored)
-5. **Clears git credentials** from the previous profile (`git credential reject`)
-6. **Stores git credentials** for the new profile if it has a stored token (`git credential approve`)
-7. **Pins `credential.https://github.com.username`** so git only uses credentials belonging to this profile
-8. Increments the profile's `usage_count` and `last_used`
-9. Logs the activation to the audit log
+3. Loads the SSH key into the ssh-agent via `ssh-add` (if configured and key file exists)
+4. **Pins `credential.https://github.com.username`** so git only uses credentials belonging to this profile
+5. If GCM is the credential helper: git will ask GCM dynamically for credentials (no system keychain involved)
+6. If GCM is NOT the credential helper (legacy): clears old credentials via `git credential reject` and stores the new profile's token via `git credential approve`
+7. Increments the profile's `usage_count` and `last_used`
+8. Logs the activation to the audit log
+9. Verifies the GitHub token validity (best-effort, warns if expired)
 
 > **Credential Isolation:** After switching, git clone/push/pull will only work with the active profile's GitHub account. Other profiles' credentials cannot bleed through.
 
@@ -494,13 +494,17 @@ gcm github logout work                         # remove token + clear git creden
 gcm github logout work --clear-credentials=false  # only remove GCM token
 ```
 
-| Flag                  | Default | Description                                                 |
-| --------------------- | ------- | ----------------------------------------------------------- |
-| `--clear-credentials` | true    | Also clear cached git credentials via `git credential reject` |
+| Flag                  | Short | Default | Description                                                 |
+| --------------------- | ----- | ------- | ----------------------------------------------------------- |
+| `--clear-credentials` |       | true    | Also clear cached git credentials via `git credential reject` |
+| `--force`             | `-f`  | false   | Skip confirmation when logging out a non-active profile     |
 
 **What it does:**
-1. Deletes the stored token from the keychain/encrypted file
-2. (If `--clear-credentials`) Clears git credentials for GitHub from the system credential store (macOS Keychain, Windows Credential Manager, Linux secret-service)
+1. If logging out a non-active profile, prompts for confirmation (skip with `--force`)
+2. Deletes the stored token from the keychain/encrypted file
+3. (If `--clear-credentials` AND the profile is currently active) Clears git credentials for GitHub from the system credential store (macOS Keychain, Windows Credential Manager, Linux secret-service)
+
+> **Note:** Git credentials are only cleared if the profile being logged out is the currently active one. This prevents accidentally breaking the active profile's authentication.
 
 ### `gcm github verify <profile>`
 
@@ -771,7 +775,7 @@ This makes git authentication independent of the system keychain (macOS Keychain
 
 | Variable              | Description                                      |
 | --------------------- | ------------------------------------------------ |
-| `GCM_ACTIVE_PROFILE`  | Set by shell hooks to the active profile name    |
+| `_GCM_PROMPT`         | Shell variable set by precmd hook with active profile name (used in prompt) |
 | `SHELL`               | Used by `gcm init` to detect your shell          |
 | `HOME`                | Used to locate `~/.gcm/`                         |
 

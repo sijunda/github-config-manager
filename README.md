@@ -24,7 +24,7 @@
 - 🔐 **GPG Signing** — Generate GPG keys and enable commit signing
 - 🐙 **GitHub Integration** — OAuth login, upload keys via API
 - 🛡️ **Credential Isolation** — Git credentials are pinned per profile; no bleed between accounts. Built-in credential helper is immune to external logout (VS Code, browser, etc.)
-- �🐚 **Shell Integration** — Auto-switch profiles on `cd` (bash, zsh, fish, powershell)
+- 🐚 **Shell Integration** — Auto-switch profiles on `cd` (bash, zsh, fish, powershell)
 - 📋 **Templates** — Share configuration standards across teams
 - 💾 **Backup & Restore** — Protect your configuration data
 - 🏥 **Diagnostics** — Health checks and profile validation
@@ -44,10 +44,12 @@ make install        # installs to $(go env GOPATH)/bin/gcm (no sudo needed)
 
 Make sure `$(go env GOPATH)/bin` is on your `PATH` — typically `~/go/bin`.
 
-### Via `go install`
+### Via `go install` (once published)
 ```bash
 go install github.com/sijunda/github-config-manager/cmd/gcm@latest
 ```
+
+> **Note:** Requires the module to be published on GitHub. Until then, use "From Source" above.
 
 ### Homebrew / Binary (coming soon)
 A Homebrew tap and prebuilt release binaries are planned. For now, build from source.
@@ -67,7 +69,7 @@ gcm doctor                              # 4. Verify everything works
 
 ## Profile Naming
 
-`work` is not a reserved word — the name after `gcm profile create` is a free-form identifier you pick yourself. Valid names use lowercase letters, digits, `-`, or `_`, and must not contain `/`, `\`, `..`, or control characters.
+`work` is not a reserved word — the name after `gcm profile create` is a free-form identifier you pick yourself. Valid names start with a letter or digit, and may contain letters, digits, `-`, or `_`. Names that differ only by case (e.g., `Work` and `work`) are treated as duplicates for cross-platform consistency.
 
 Pick names that match your real identities:
 

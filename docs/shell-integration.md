@@ -163,7 +163,7 @@ This is powered by a `precmd` (zsh) / `PROMPT_COMMAND` (bash) hook that runs `gc
 1. Shell hook fires on every directory change
 2. Hook checks for a `.gcm-profile` file in the new directory
 3. If found, `gcm refresh --silent` reads the file and activates that profile
-4. Git config, SSH agent, and `GCM_ACTIVE_PROFILE` are updated
+4. Git config and SSH agent are updated; the `_GCM_PROMPT` shell variable reflects the new profile
 
 ### Create `.gcm-profile`
 

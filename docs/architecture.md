@@ -398,7 +398,7 @@ This avoids interfaces for mocking, keeps production code simple, and enables te
 | Package | Coverage | Key Testing Strategy |
 |---------|---------|---------------------|
 | `internal/profile` | 90%+ | Function hooks for file I/O |
-| `internal/ssh` | 90%+ | Fake `ssh-keygen`, `ssh-add` on PATH |
+| `internal/ssh` | 90%+ | Native Go crypto keygen, `ssh-add` error paths |
 | `internal/gpg` | 90%+ | Fake `gpg` binary on PATH |
 | `internal/github` | 90%+ | Hook HTTP client, fake keyring |
 | `internal/config` | 90%+ | Temp directories, real YAML files |

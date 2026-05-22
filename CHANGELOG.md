@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 - **Built-in credential helper** — GCM registers itself as git's credential helper for github.com (`gcm credential-helper`). Git push/pull/clone reads tokens directly from GCM's encrypted store, bypassing the system keychain entirely. External credential store changes (VS Code logout, browser session clear, etc.) no longer break git authentication
-- **Git credential isolation** — `gcm use` now clears previous credentials and stores the new profile's token via `git credential approve/reject`, preventing credential bleed between profiles
+- **Git credential isolation** — `gcm use` now isolates git credentials per profile. When GCM is the credential helper, credentials are served dynamically from the encrypted store. In legacy mode (system keychain), it clears previous credentials and stores the new profile's token via `git credential approve/reject`, preventing credential bleed between profiles
 - **Credential username pinning** — sets `credential.https://github.com.username` in global git config so git only uses credentials matching the active profile
 - **Smart scope fallback** — `gcm use <name>` works anywhere: inside a git repo → session scope, outside → local scope (writes `.gcm-profile`). No more "not in a git repository" errors
 - **`--global` clears local overrides** — `gcm use <name> --global` now removes any `.gcm-profile` file and session marker in the current directory
