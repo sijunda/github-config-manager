@@ -222,22 +222,41 @@ function Show-RemovalProgress {
 
 # Remove binary with feedback
 function Remove-Binary {
-    $installDir = Join-Path $env:USERPROFILE ".local\bin"
-    $binaryPath = Join-Path $installDir "gcm.exe"
-
     Print-Step "Removing gcm binary..."
 
-    if (Test-Path $binaryPath) {
-        Show-RemovalProgress "binary"
-        try {
-            Remove-Item -Path $binaryPath -Force
-            Print-Success "Removed gcm from $installDir"
+    $candidates = @(
+        (Join-Path $env:USERPROFILE ".local\bin\gcm.exe"),
+        (Join-Path ($env:GOPATH ?? (Join-Path $env:USERPROFILE "go")) "bin\gcm.exe"),
+        "C:\usr\local\bin\gcm.exe"
+    )
+
+    # Also check where gcm is in PATH
+    $gcmCmd = Get-Command gcm -ErrorAction SilentlyContinue
+    if ($gcmCmd) {
+        $candidates += $gcmCmd.Source
+    }
+
+    $removed = $false
+    $seen = @{}
+    foreach ($candidate in $candidates) {
+        if (-not $candidate -or $seen.ContainsKey($candidate)) { continue }
+        $seen[$candidate] = $true
+
+        if (Test-Path $candidate) {
+            Show-RemovalProgress "binary ($candidate)"
+            try {
+                Remove-Item -Path $candidate -Force
+                Print-Success "Removed gcm from $candidate"
+                $removed = $true
+            }
+            catch {
+                Print-Error "Failed to remove $candidate`: $($_.Exception.Message)"
+            }
         }
-        catch {
-            Print-Error "Failed to remove binary: $($_.Exception.Message)"
-        }
-    } else {
-        Print-Warning "gcm binary not found at $binaryPath"
+    }
+
+    if (-not $removed) {
+        Print-Warning "gcm binary not found in expected locations"
     }
 }
 
@@ -286,6 +305,29 @@ function Remove-GcmDirectory {
     }
 }
 
+# Remove git credential config for github.com
+function Remove-GitCredential {
+    Print-Step "Cleaning git credential config..."
+
+    $credHelper = & git config --global "credential.https://github.com.helper" 2>$null
+    $credUser = & git config --global "credential.https://github.com.username" 2>$null
+    $cleaned = $false
+
+    if ($credHelper) {
+        & git config --global --unset-all "credential.https://github.com.helper" 2>$null
+        Print-Success "Removed credential.https://github.com.helper"
+        $cleaned = $true
+    }
+    if ($credUser) {
+        & git config --global --unset-all "credential.https://github.com.username" 2>$null
+        Print-Success "Removed credential.https://github.com.username"
+        $cleaned = $true
+    }
+    if (-not $cleaned) {
+        Print-Info "No GCM credential config found"
+    }
+}
+
 # Show uninstall options
 function Show-UninstallOptions {
     Print-Separator "═"
@@ -303,7 +345,13 @@ function Show-UninstallOptions {
     Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) all profiles and configuration (~/.gcm)"
     Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) encrypted tokens, backup archives, audit logs"
     Write-Host ""
-    Write-Host "$($Colors.Gray)$($Colors.Bold)3)$($Colors.Reset) $($Colors.White)Cancel$($Colors.Reset)"
+    Write-Host "$($Colors.Red)$($Colors.Bold)3)$($Colors.Reset) $($Colors.White)Nuclear Clean$($Colors.Reset) $($Colors.Dim)(Everything - no trace left)$($Colors.Reset)"
+    Write-Host "   * Everything in option 2, plus:"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git global identity (user.name, user.email, signingkey)"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git credential config for github.com"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git local identity and GCM markers in current repo"
+    Write-Host ""
+    Write-Host "$($Colors.Gray)$($Colors.Bold)4)$($Colors.Reset) $($Colors.White)Cancel$($Colors.Reset)"
     Write-Host "   * Exit without making any changes"
     Write-Host ""
     Print-Separator "┄"
@@ -311,42 +359,56 @@ function Show-UninstallOptions {
 
 # Show completion message
 function Show-Completion {
-    param([bool]$CompleteRemoval)
+    param([string]$Mode)
 
     Write-Host ""
     Print-Separator "═"
     Write-Host ""
 
-    if ($CompleteRemoval) {
-        Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  COMPLETE UNINSTALLATION SUCCESSFUL!$($Colors.Reset)"
-        Write-Host ""
-        Print-Separator "┄"
-        Write-Host "$($Colors.Bold)$($Colors.White)What was removed:$($Colors.Reset)"
-        Write-Host " * gcm binary"
-        Write-Host " * PATH configuration"
-        Write-Host " * All profiles and configuration"
-        Write-Host " * Encrypted tokens and audit logs"
-        Write-Host " * Backup archives"
-    } else {
-        Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  MINIMAL UNINSTALLATION COMPLETE!$($Colors.Reset)"
-        Write-Host ""
-        Print-Separator "┄"
-        Write-Host "$($Colors.Bold)$($Colors.White)What was removed:$($Colors.Reset)"
-        Write-Host " * gcm binary"
-        Write-Host " * PATH configuration"
-        Write-Host ""
-        Write-Host "$($Colors.Bold)$($Colors.White)What was kept:$($Colors.Reset)"
-        Write-Host " * Profiles and configuration in ~\.gcm"
-        Write-Host " * SSH keys (in ~\.ssh)"
-        Write-Host " * Encrypted tokens and backup archives"
+    switch ($Mode) {
+        "nuclear" {
+            Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  NUCLEAR CLEAN SUCCESSFUL - NO TRACE LEFT!$($Colors.Reset)"
+            Write-Host ""
+            Print-Separator "┄"
+            Write-Host "$($Colors.Bold)$($Colors.White)What was removed:$($Colors.Reset)"
+            Write-Host " * gcm binary (from all locations)"
+            Write-Host " * PATH configuration"
+            Write-Host " * Git global identity (user.name, user.email, signingkey, gpgsign)"
+            Write-Host " * Git local identity and GCM markers"
+            Write-Host " * Git credential config for github.com"
+            Write-Host " * All profiles, tokens, config, backups, cache"
+        }
+        "complete" {
+            Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  COMPLETE UNINSTALLATION SUCCESSFUL!$($Colors.Reset)"
+            Write-Host ""
+            Print-Separator "┄"
+            Write-Host "$($Colors.Bold)$($Colors.White)What was removed:$($Colors.Reset)"
+            Write-Host " * gcm binary"
+            Write-Host " * PATH configuration"
+            Write-Host " * All profiles and configuration"
+            Write-Host " * Encrypted tokens and audit logs"
+        }
+        default {
+            Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  MINIMAL UNINSTALLATION COMPLETE!$($Colors.Reset)"
+            Write-Host ""
+            Print-Separator "┄"
+            Write-Host "$($Colors.Bold)$($Colors.White)What was removed:$($Colors.Reset)"
+            Write-Host " * gcm binary"
+            Write-Host " * PATH configuration"
+            Write-Host ""
+            Write-Host "$($Colors.Bold)$($Colors.White)What was kept:$($Colors.Reset)"
+            Write-Host " * Profiles and configuration in ~\.gcm"
+            Write-Host " * SSH keys (in ~\.ssh)"
+            Write-Host " * Encrypted tokens and backup archives"
+        }
     }
 
     Print-Separator "┄"
     Write-Host "$($Colors.Bold)$($Colors.White)Final Steps:$($Colors.Reset)"
     Write-Host " 1. Restart your PowerShell/Command Prompt"
-    Write-Host " 2. Verify with 'gcm version' (should show error)"
+    Write-Host " 2. Verify with 'Get-Command gcm' (should show error)"
 
-    if (-not $CompleteRemoval) {
+    if ($Mode -eq "minimal") {
         Write-Host " 3. Manually remove '~\.gcm' if you change your mind later"
     }
 
@@ -354,6 +416,53 @@ function Show-Completion {
     Write-Host "Thank you for using GCM!"
     Print-Separator "═"
     Write-Host ""
+}
+
+# Remove git global/local identity set by GCM
+function Remove-GitIdentity {
+    Print-Step "Removing git identity configuration..."
+    $cleaned = $false
+
+    foreach ($key in @("user.name", "user.email", "user.signingkey", "commit.gpgsign", "gpg.format", "core.sshCommand")) {
+        $val = & git config --global $key 2>$null
+        if ($val) {
+            & git config --global --unset-all $key 2>$null
+            Print-Success "Unset git global $key"
+            $cleaned = $true
+        }
+    }
+
+    # Clean local repo if inside one
+    $isRepo = & git rev-parse --is-inside-work-tree 2>$null
+    if ($isRepo -eq "true") {
+        foreach ($key in @("user.name", "user.email", "user.signingkey", "commit.gpgsign")) {
+            $val = & git config --local $key 2>$null
+            if ($val) {
+                & git config --local --unset-all $key 2>$null
+                Print-Success "Unset git local $key"
+                $cleaned = $true
+            }
+        }
+        $gitRoot = & git rev-parse --show-toplevel 2>$null
+        if ($gitRoot) {
+            $profileMarker = Join-Path $gitRoot ".gcm-profile"
+            $sessionMarker = Join-Path $gitRoot ".git\gcm-session"
+            if (Test-Path $profileMarker) {
+                Remove-Item -Path $profileMarker -Force
+                Print-Success "Removed .gcm-profile marker"
+                $cleaned = $true
+            }
+            if (Test-Path $sessionMarker) {
+                Remove-Item -Path $sessionMarker -Force
+                Print-Success "Removed .git/gcm-session marker"
+                $cleaned = $true
+            }
+        }
+    }
+
+    if (-not $cleaned) {
+        Print-Info "No git identity configuration found"
+    }
 }
 
 # Main uninstallation function
@@ -407,7 +516,7 @@ function Main {
     # Show uninstall options
     Show-UninstallOptions
 
-    $response = Read-Host "Choose an option (1/2/3)"
+    $response = Read-Host "Choose an option (1/2/3/4)"
     Write-Host ""
 
     switch ($response) {
@@ -427,7 +536,7 @@ function Main {
                 Write-Host ""
                 Remove-FromPath
                 Write-Host ""
-                Show-Completion $false
+                Show-Completion "minimal"
             } else {
                 Write-Host ""
                 Print-Info "Uninstallation cancelled by user"
@@ -457,7 +566,41 @@ function Main {
                 Write-Host ""
                 Remove-GcmDirectory
                 Write-Host ""
-                Show-Completion $true
+                Show-Completion "complete"
+            } else {
+                Write-Host ""
+                Print-Info "Uninstallation cancelled - confirmation text did not match"
+                Print-Separator "═"
+                Write-Host "$($Colors.Dim)$($Colors.Gray)No changes were made to your system.$($Colors.Reset)"
+                Print-Separator "═"
+                Write-Host ""
+            }
+        }
+        "3" {
+            Print-Info "Proceeding with NUCLEAR clean..."
+            Write-Host ""
+            Show-RemovalPreview "complete"
+
+            Print-Separator "┄"
+            Write-Host "$($Colors.Red)$($Colors.Bold) $($Icons.Stop)  DANGER: NUCLEAR CLEAN - NO TRACE LEFT$($Colors.Reset)"
+            Print-Separator "┄"
+            Write-Host "$($Colors.Red)This will permanently delete EVERYTHING: binary, data, git identity, credentials!$($Colors.Reset)"
+            Print-Separator "┄"
+
+            $confirm = Read-Host "Type 'NUKE' to confirm nuclear clean"
+            if ($confirm -eq "NUKE") {
+                Write-Host ""
+                Remove-Binary
+                Write-Host ""
+                Remove-FromPath
+                Write-Host ""
+                Remove-GitIdentity
+                Write-Host ""
+                Remove-GitCredential
+                Write-Host ""
+                Remove-GcmDirectory
+                Write-Host ""
+                Show-Completion "nuclear"
             } else {
                 Write-Host ""
                 Print-Info "Uninstallation cancelled - confirmation text did not match"

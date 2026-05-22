@@ -105,13 +105,15 @@ if !INSTALLATION_FOUND!==0 (
 
 call :show_uninstall_options
 
-set /p "RESPONSE=Choose an option (1/2/3): "
+set /p "RESPONSE=Choose an option (1/2/3/4): "
 echo.
 
 if "!RESPONSE!"=="1" (
     call :minimal_removal
 ) else if "!RESPONSE!"=="2" (
     call :complete_removal
+) else if "!RESPONSE!"=="3" (
+    call :nuclear_clean
 ) else (
     echo.
     call :print_info "Uninstallation cancelled by user"
@@ -192,13 +194,19 @@ goto :eof
 call :print_step "Checking GCM installation..."
 
 set "INSTALL_DIR=%USERPROFILE%\.local\bin"
+set "GOPATH_BIN=%GOPATH%\bin"
+if "%GOPATH_BIN%"=="\bin" set "GOPATH_BIN=%USERPROFILE%\go\bin"
 set "GCM_DIR=%USERPROFILE%\.gcm"
 set "FOUND=0"
 
-REM Check binary
+REM Check binary in multiple locations
 if exist "%INSTALL_DIR%\gcm.exe" (
     set "FOUND=1"
     echo %GREEN% %CHECKMARK%%RESET% Binary found: %BOLD%%INSTALL_DIR%\gcm.exe%RESET%
+)
+if exist "%GOPATH_BIN%\gcm.exe" (
+    set "FOUND=1"
+    echo %GREEN% %CHECKMARK%%RESET% Binary found: %BOLD%%GOPATH_BIN%\gcm.exe%RESET%
 )
 
 REM Check if gcm is in PATH
@@ -238,7 +246,13 @@ echo    * Clean PATH configuration
 echo    * %RED%Delete%RESET% all profiles and configuration
 echo    * %RED%Delete%RESET% encrypted tokens, backup archives, audit logs
 echo.
-echo %GRAY%%BOLD%3)%RESET% %WHITE%Cancel%RESET%
+echo %RED%%BOLD%3)%RESET% %WHITE%Nuclear Clean%RESET% %DIM%(Everything - no trace left)%RESET%
+echo    * Everything in option 2, plus:
+echo    * %RED%Delete%RESET% git global identity (user.name, user.email, signingkey)
+echo    * %RED%Delete%RESET% git credential config for github.com
+echo    * %RED%Delete%RESET% git local identity and GCM markers in current repo
+echo.
+echo %GRAY%%BOLD%4)%RESET% %WHITE%Cancel%RESET%
 echo    * Exit without making any changes
 echo.
 call :print_separator "-"
@@ -297,6 +311,8 @@ call :remove_binary
 echo.
 call :remove_from_path
 echo.
+call :remove_git_credential
+echo.
 call :remove_gcm_dir
 echo.
 call :show_completion_complete
@@ -304,17 +320,44 @@ goto :eof
 
 :remove_binary
 set "INSTALL_DIR=%USERPROFILE%\.local\bin"
+set "GOPATH_BIN=%GOPATH%\bin"
+if "%GOPATH_BIN%"=="\bin" set "GOPATH_BIN=%USERPROFILE%\go\bin"
 call :print_step "Removing gcm binary..."
+
+set "BINARY_REMOVED=0"
 
 if exist "%INSTALL_DIR%\gcm.exe" (
     del "%INSTALL_DIR%\gcm.exe" 2>nul
     if !errorlevel!==0 (
         call :print_success "Removed gcm from %INSTALL_DIR%"
+        set "BINARY_REMOVED=1"
     ) else (
-        call :print_error "Failed to remove binary"
+        call :print_error "Failed to remove binary from %INSTALL_DIR%"
     )
-) else (
-    call :print_warning "gcm binary not found at %INSTALL_DIR%\gcm.exe"
+)
+
+if exist "%GOPATH_BIN%\gcm.exe" (
+    del "%GOPATH_BIN%\gcm.exe" 2>nul
+    if !errorlevel!==0 (
+        call :print_success "Removed gcm from %GOPATH_BIN%"
+        set "BINARY_REMOVED=1"
+    ) else (
+        call :print_error "Failed to remove binary from %GOPATH_BIN%"
+    )
+)
+
+if exist "C:\usr\local\bin\gcm.exe" (
+    del "C:\usr\local\bin\gcm.exe" 2>nul
+    if !errorlevel!==0 (
+        call :print_success "Removed gcm from C:\usr\local\bin"
+        set "BINARY_REMOVED=1"
+    ) else (
+        call :print_error "Failed to remove binary from C:\usr\local\bin"
+    )
+)
+
+if !BINARY_REMOVED!==0 (
+    call :print_warning "gcm binary not found in expected locations"
 )
 goto :eof
 
@@ -348,6 +391,22 @@ if exist "%GCM_DIR%" (
     )
 ) else (
     call :print_warning "GCM directory not found at %GCM_DIR%"
+)
+goto :eof
+
+:remove_git_credential
+call :print_step "Cleaning git credential config..."
+
+REM Check and remove credential helper
+for /f "tokens=*" %%a in ('git config --global "credential.https://github.com.helper" 2^>nul') do (
+    git config --global --unset-all "credential.https://github.com.helper" 2>nul
+    call :print_success "Removed credential.https://github.com.helper"
+)
+
+REM Check and remove credential username
+for /f "tokens=*" %%a in ('git config --global "credential.https://github.com.username" 2^>nul') do (
+    git config --global --unset-all "credential.https://github.com.username" 2>nul
+    call :print_success "Removed credential.https://github.com.username"
 )
 goto :eof
 
@@ -394,6 +453,101 @@ call :print_separator "-"
 echo %BOLD%%WHITE%Final Steps:%RESET%
 echo  1. Restart your terminal/Command Prompt
 echo  2. Verify with 'gcm version' (should show error)
+call :print_separator "-"
+echo Thank you for using GCM!
+call :print_separator "="
+echo.
+goto :eof
+
+:nuclear_clean
+call :print_info "Proceeding with NUCLEAR clean..."
+echo.
+
+call :print_separator "-"
+echo %RED%%BOLD% %STOP%  DANGER: NUCLEAR CLEAN - NO TRACE LEFT%RESET%
+call :print_separator "-"
+echo %RED%This will permanently delete EVERYTHING: binary, data, git identity, credentials!%RESET%
+call :print_separator "-"
+set /p "CONFIRM=Type 'NUKE' to confirm nuclear clean: "
+
+if "!CONFIRM!" neq "NUKE" (
+    echo.
+    call :print_info "Uninstallation cancelled - confirmation text did not match"
+    call :print_separator "="
+    echo %DIM%%GRAY%No changes were made to your system.%RESET%
+    call :print_separator "="
+    echo.
+    goto :eof
+)
+
+echo.
+call :remove_binary
+echo.
+call :remove_from_path
+echo.
+call :remove_git_identity
+echo.
+call :remove_git_credential
+echo.
+call :remove_gcm_dir
+echo.
+call :show_completion_nuclear
+goto :eof
+
+:remove_git_identity
+call :print_step "Removing git identity configuration..."
+
+for /f "tokens=*" %%a in ('git config --global user.name 2^>nul') do (
+    git config --global --unset-all user.name 2>nul
+    call :print_success "Unset git global user.name"
+)
+for /f "tokens=*" %%a in ('git config --global user.email 2^>nul') do (
+    git config --global --unset-all user.email 2>nul
+    call :print_success "Unset git global user.email"
+)
+for /f "tokens=*" %%a in ('git config --global user.signingkey 2^>nul') do (
+    git config --global --unset-all user.signingkey 2>nul
+    call :print_success "Unset git global user.signingkey"
+)
+for /f "tokens=*" %%a in ('git config --global commit.gpgsign 2^>nul') do (
+    git config --global --unset-all commit.gpgsign 2>nul
+    call :print_success "Unset git global commit.gpgsign"
+)
+
+REM Clean local repo if inside one
+git rev-parse --is-inside-work-tree >nul 2>&1
+if !errorlevel!==0 (
+    git config --local --unset-all user.name 2>nul
+    git config --local --unset-all user.email 2>nul
+    git config --local --unset-all user.signingkey 2>nul
+    git config --local --unset-all commit.gpgsign 2>nul
+    call :print_success "Cleaned git local identity"
+    for /f "tokens=*" %%r in ('git rev-parse --show-toplevel 2^>nul') do (
+        if exist "%%r\.gcm-profile" del "%%r\.gcm-profile" 2>nul
+        if exist "%%r\.git\gcm-session" del "%%r\.git\gcm-session" 2>nul
+    )
+    call :print_success "Removed GCM markers"
+)
+goto :eof
+
+:show_completion_nuclear
+echo.
+call :print_separator "="
+echo.
+echo %GREEN%%BOLD%  NUCLEAR CLEAN SUCCESSFUL - NO TRACE LEFT!%RESET%
+echo.
+call :print_separator "-"
+echo %BOLD%%WHITE%What was removed:%RESET%
+echo  * gcm binary (from all locations)
+echo  * PATH configuration
+echo  * Git global identity (user.name, user.email, signingkey, gpgsign)
+echo  * Git local identity and GCM markers
+echo  * Git credential config for github.com
+echo  * All profiles, tokens, config, backups, cache
+call :print_separator "-"
+echo %BOLD%%WHITE%Final Steps:%RESET%
+echo  1. Restart your terminal/Command Prompt
+echo  2. Verify with 'where gcm' (should show error)
 call :print_separator "-"
 echo Thank you for using GCM!
 call :print_separator "="
