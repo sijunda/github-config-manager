@@ -7,6 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github-config-manager/internal/audit"
+	"github-config-manager/internal/profile"
+	"github-config-manager/pkg/ui"
+
 	"github.com/spf13/cobra"
 )
 
@@ -76,4 +80,23 @@ func readStdinToken() (string, error) {
 		return "", err
 	}
 	return "", fmt.Errorf("no input received")
+}
+
+// activateAsGlobalIfFirst activates the given profile globally if no profile
+// has been set as the global default yet. This is called after a successful
+// GitHub authentication so that the first authenticated profile automatically
+// becomes the user's default identity.
+func activateAsGlobalIfFirst(profileName string) {
+	if ctr.Config.DefaultProfile != "" {
+		return
+	}
+
+	if err := ctr.ProfileSwitcher.Activate(profileName, profile.ScopeGlobal); err != nil {
+		return
+	}
+
+	ctr.AuditLogger.Log(audit.ActionProfileActivate, profileName,
+		map[string]string{"scope": "global", "trigger": "first-auth"}, nil)
+	ui.Blank()
+	ui.Success("Profile %q set as global default (first authenticated profile)", profileName)
 }

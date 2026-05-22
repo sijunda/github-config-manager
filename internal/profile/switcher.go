@@ -164,6 +164,22 @@ func (s *Switcher) Refresh() error {
 	return s.Activate(name, ScopeLocal)
 }
 
+// ClearGlobalIdentity unsets git global user.name, user.email, and
+// user.signingkey so that no identity is configured. This ensures git will
+// refuse to commit until a profile is activated through GCM.
+func (s *Switcher) ClearGlobalIdentity() error {
+	gitCmd := s.cfg.Advanced.GitCommand
+	keys := []string{"user.name", "user.email", "user.signingkey"}
+
+	for _, key := range keys {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultGitTimeout)
+		cmd := exec.CommandContext(ctx, gitCmd, "config", "--global", "--unset-all", key)
+		_ = cmd.Run() // ignore errors (key may not exist)
+		cancel()
+	}
+	return nil
+}
+
 func (s *Switcher) activateGlobal(p *Profile) error {
 	return s.applyGitConfig(p, "--global")
 }

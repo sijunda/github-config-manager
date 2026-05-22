@@ -987,6 +987,44 @@ func TestActivate_GlobalScope_NonCriticalFieldFails(t *testing.T) {
 	}
 }
 
+func TestClearGlobalIdentity(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, _, _ := newTestSwitcher(t)
+
+	// Use a temporary gitconfig so we don't affect the real one
+	tmpCfg := filepath.Join(t.TempDir(), "gitconfig")
+	os.Setenv("GIT_CONFIG_GLOBAL", tmpCfg)
+	defer os.Unsetenv("GIT_CONFIG_GLOBAL")
+
+	// Set some global identity values
+	exec.Command("git", "config", "--global", "user.name", "OldUser").Run()
+	exec.Command("git", "config", "--global", "user.email", "old@example.com").Run()
+	exec.Command("git", "config", "--global", "user.signingkey", "DEADBEEF").Run()
+
+	// ClearGlobalIdentity should unset them
+	err := sw.ClearGlobalIdentity()
+	if err != nil {
+		t.Fatalf("ClearGlobalIdentity: %v", err)
+	}
+
+	// Verify they're unset (git config exits non-zero when key doesn't exist)
+	out, err := exec.Command("git", "config", "--global", "user.name").Output()
+	if err == nil && strings.TrimSpace(string(out)) != "" {
+		t.Errorf("user.name still set: %q", string(out))
+	}
+	out, err = exec.Command("git", "config", "--global", "user.email").Output()
+	if err == nil && strings.TrimSpace(string(out)) != "" {
+		t.Errorf("user.email still set: %q", string(out))
+	}
+	out, err = exec.Command("git", "config", "--global", "user.signingkey").Output()
+	if err == nil && strings.TrimSpace(string(out)) != "" {
+		t.Errorf("user.signingkey still set: %q", string(out))
+	}
+}
+
 func TestCurrent_SessionDetection(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found")

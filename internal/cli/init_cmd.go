@@ -60,6 +60,16 @@ Examples:
 			ui.Blank()
 			ui.Info("Restart your shell or run: source %s", configFile)
 
+			// Clear global git identity if no profile is set as default.
+			// This ensures git won't use stale identity values.
+			if ctr.Config.DefaultProfile == "" {
+				_ = ctr.ProfileSwitcher.ClearGlobalIdentity()
+				ui.Blank()
+				ui.Info("Global git identity cleared — activate a profile to set your identity:")
+				ui.Print("  gcm setup          (guided wizard)")
+				ui.Print("  gcm use <profile>  (if you already have profiles)")
+			}
+
 			return nil
 		},
 	}
