@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -34,15 +34,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Run tests
         if: matrix.os != 'windows-latest'
         run: go test -race -coverprofile=coverage.out ./...
 
-      - name: Test (windows smoke)
+      - name: Run tests (Windows smoke)
         if: matrix.os == 'windows-latest'
         shell: bash
-        # Current internal tests include many POSIX-only assumptions (chmod, path separators,
-        # and .sh script execution). Keep Windows coverage as smoke tests for public packages.
         run: go test -race -coverprofile=coverage-windows.out ./pkg/...
 
       - name: Upload coverage
@@ -71,7 +69,7 @@ jobs:
 
   release:
     name: Release
-    needs: [test, lint]
+    needs: [build-and-test, lint]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
