@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github-config-manager/internal/audit"
@@ -72,9 +73,35 @@ func newGPGGenerateCmd() *cobra.Command {
 			p.Git.User.SigningKey = keyInfo.KeyID
 			_ = ctr.ProfileManager.Update(p)
 
+			// Auto-upload GPG key to GitHub if token is available
+			if token, err := ctr.GitHubClient.LoadToken(profileName); err == nil && token != "" {
+				ui.Blank()
+				upload, askErr := ui.AskConfirm("Upload GPG key to GitHub automatically?", true)
+				if askErr == nil && upload {
+					sp2 := ui.NewSpinner("Uploading GPG key to GitHub...")
+					sp2.Start()
+
+					armoredKey, exportErr := ctr.GPGManager.GetPublicKey(keyInfo.KeyID)
+					if exportErr != nil {
+						sp2.StopError("Failed to export GPG public key")
+						ui.Warning("Could not export key: %v", exportErr)
+					} else {
+						ctr.GitHubClient.SetToken(token)
+						if uploadErr := ctr.GitHubClient.UploadGPGKey(context.Background(), armoredKey); uploadErr != nil {
+							sp2.StopError("Failed to upload GPG key")
+							ui.Warning("Upload failed: %v", uploadErr)
+							ui.Print("  You can upload manually at: https://github.com/settings/keys")
+						} else {
+							sp2.Stop("GPG key uploaded to GitHub!")
+							ctr.AuditLogger.Log(audit.ActionGPGGenerate, profileName,
+								map[string]string{"key_id": keyInfo.KeyID, "uploaded": "true"}, nil)
+						}
+					}
+				}
+			}
+
 			ui.NextSteps([]string{
 				fmt.Sprintf("Test signing: gcm gpg test %s", profileName),
-				fmt.Sprintf("Upload to GitHub: gcm github login %s", profileName),
 			})
 
 			return nil

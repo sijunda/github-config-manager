@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github-config-manager/internal/audit"
@@ -89,10 +90,6 @@ Examples:
 			ui.Blank()
 			ui.Print("Public key:")
 			ui.Print(keyInfo.PublicKey)
-			ui.NextSteps([]string{
-				fmt.Sprintf("Test connection: gcm ssh test %s", profileName),
-				fmt.Sprintf("Upload to GitHub: gcm github login %s", profileName),
-			})
 
 			// Update profile if it exists
 			p, _ := ctr.ProfileManager.Get(profileName)
@@ -105,6 +102,32 @@ Examples:
 				}
 				_ = ctr.ProfileManager.Update(p)
 			}
+
+			// Auto-upload SSH key to GitHub if token is available
+			if token, err := ctr.GitHubClient.LoadToken(profileName); err == nil && token != "" {
+				ui.Blank()
+				upload, askErr := ui.AskConfirm("Upload SSH key to GitHub automatically?", true)
+				if askErr == nil && upload {
+					sp2 := ui.NewSpinner("Uploading SSH key to GitHub...")
+					sp2.Start()
+
+					title := fmt.Sprintf("gcm-%s-%s", profileName, keyInfo.Type)
+					ctr.GitHubClient.SetToken(token)
+					if uploadErr := ctr.GitHubClient.UploadSSHKey(context.Background(), title, keyInfo.PublicKey); uploadErr != nil {
+						sp2.StopError("Failed to upload SSH key")
+						ui.Warning("Upload failed: %v", uploadErr)
+						ui.Print("  You can upload manually at: https://github.com/settings/keys")
+					} else {
+						sp2.Stop("SSH key uploaded to GitHub!")
+						ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
+							map[string]string{"type": keyInfo.Type, "path": keyInfo.Path, "uploaded": "true"}, nil)
+					}
+				}
+			}
+
+			ui.NextSteps([]string{
+				fmt.Sprintf("Test connection: gcm ssh test %s", profileName),
+			})
 
 			return nil
 		},

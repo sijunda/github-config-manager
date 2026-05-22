@@ -215,10 +215,10 @@ git config user.email
 ### Rotating SSH Keys
 
 ```bash
-# Generate new key
+# Generate new key (auto-uploads to GitHub if logged in)
 gcm ssh generate work -t ed25519
 
-# Upload to GitHub
+# If not logged in, upload manually:
 gcm ssh copy work
 # Paste in GitHub → Settings → SSH Keys
 

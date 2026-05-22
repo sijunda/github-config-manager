@@ -132,6 +132,7 @@ sequenceDiagram
     participant Crypto as Go crypto
     participant FS as File System
     participant ProfileMgr as Profile Manager
+    participant GitHub as GitHub API
     participant AuditLog as Audit Logger
 
     User->>CLI: gcm ssh generate work -t ed25519
@@ -151,6 +152,15 @@ sequenceDiagram
     SSHMgr-->>CLI: KeyInfo (path, type, fingerprint, pubkey)
     
     CLI->>ProfileMgr: Update profile SSH config
+
+    alt GitHub token exists for profile
+        CLI-->>User: Upload SSH key to GitHub automatically? [Y/n]
+        User-->>CLI: Yes
+        CLI->>GitHub: POST /user/keys (public key)
+        GitHub-->>CLI: 201 Created
+        CLI-->>User: ✓ SSH key uploaded to GitHub!
+    end
+
     CLI->>AuditLog: Log(ssh.generate, "work")
     CLI-->>User: ✓ SSH key generated
     CLI-->>User: Public key: ssh-ed25519 AAAA...

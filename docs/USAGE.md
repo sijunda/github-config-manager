@@ -387,6 +387,8 @@ gcm ssh copy work        # copy public key to clipboard
 
 Keys are generated with Go's native crypto (no subprocess, no passphrase leaking into argv). Private keys are written `0600`, public keys `0644`. If a passphrase is provided, the private key is encrypted at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR); the passphrase itself is not stored anywhere.
 
+If a GitHub token is stored for the profile (via `gcm github login`), GCM will offer to upload the SSH key to GitHub automatically after generation.
+
 Flags for `ssh generate`:
 
 | Flag              | Default    | Description                     |
@@ -409,6 +411,8 @@ gcm gpg test work             # perform a test signature
 ```
 
 Inputs passed to `gpg` are validated: control characters and `%` are rejected to prevent injection into the batch-mode parameter file.
+
+If a GitHub token is stored for the profile, `gcm gpg generate` will offer to upload the GPG public key to GitHub automatically so commits appear as "Verified".
 
 When signing is enabled, `gcm use <profile>` writes:
 

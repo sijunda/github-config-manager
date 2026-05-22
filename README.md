@@ -20,9 +20,9 @@
 ## Features
 
 - 🎯 **Profile Management** — Create, edit, and switch between Git identities
-- 🔑 **SSH Key Management** — Generate and manage SSH keys per profile
-- 🔐 **GPG Signing** — Generate GPG keys and enable commit signing
-- 🐙 **GitHub Integration** — OAuth login, upload keys via API
+- 🔑 **SSH Key Management** — Generate and manage SSH keys per profile (auto-upload to GitHub)
+- 🔐 **GPG Signing** — Generate GPG keys and enable commit signing (auto-upload to GitHub)
+- 🐙 **GitHub Integration** — OAuth login, auto-upload SSH/GPG keys via API
 - 🛡️ **Credential Isolation** — Git credentials are pinned per profile; no bleed between accounts. Built-in credential helper is immune to external logout (VS Code, browser, etc.)
 - 🐚 **Shell Integration** — Auto-switch profiles on `cd` (bash, zsh, fish, powershell)
 - 📋 **Templates** — Share configuration standards across teams

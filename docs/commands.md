@@ -322,6 +322,7 @@ gcm ssh generate work -p "my-passphrase"       # with passphrase
 3. If a passphrase is given, encrypts the private key at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR)
 4. Updates the profile's SSH configuration automatically
 5. Prints the public key for easy copying
+6. If a GitHub token is stored for this profile, offers to upload the key to GitHub automatically
 
 ### `gcm ssh list`
 
@@ -371,6 +372,7 @@ gcm gpg generate work
 The profile must already have `user.name` and `user.email` set.
 
 After generation, the profile is automatically updated with the GPG key ID and `commit.gpgsign = true`.
+If a GitHub token is stored for this profile, GCM will offer to upload the GPG public key to GitHub so commits show as "Verified".
 
 ### `gcm gpg list`
 

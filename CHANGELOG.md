@@ -21,9 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Dry-run mode for profile activation
 - Session marker file (`.git/gcm-session`) for reliable session detection independent of git config
 - Session-aware profile detection: `gcm current` checks session marker → local marker → email matching → global default
-- SSH key generation (ed25519, RSA, ECDSA)
+- SSH key generation (ed25519, RSA, ECDSA) with auto-upload to GitHub
 - SSH key listing, connection testing, and clipboard copy
-- GPG key generation and commit signing management
+- GPG key generation and commit signing management with auto-upload to GitHub
 - GitHub OAuth device flow authentication (`gcm github login-oauth`)
 - GitHub Personal Access Token (PAT) authentication (`gcm github login`)
 - GitHub CLI token import (`gcm github login-gh`)

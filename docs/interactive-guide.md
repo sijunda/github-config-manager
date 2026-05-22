@@ -252,7 +252,7 @@ A long random string that proves you're authorized. Like a password, but:
 ```
 
 Tests if GitHub/GitLab accepts your SSH key. If it fails, you probably need to:
-1. Upload the public key to GitHub (Settings → SSH and GPG keys → New SSH key)
+1. Upload the public key to GitHub — this is offered automatically during `gcm ssh generate` if you're logged in. Otherwise: Settings → SSH and GPG keys → New SSH key
 2. Or add the key to your SSH agent: the key isn't loaded in memory
 
 ### `gcm ssh list`
@@ -296,8 +296,9 @@ Profile: work
 
 After enabling:
 - Every `git commit` is automatically signed
-- Commits show "Verified" on GitHub (once you upload the GPG key to GitHub)
-- To upload: GitHub → Settings → SSH and GPG keys → New GPG key → paste output of `gpg --armor --export <KEY_ID>`
+- Commits show "Verified" on GitHub once the GPG key is uploaded
+- GCM auto-uploads the key during `gcm gpg generate` if a GitHub token is stored for the profile
+- Manual alternative: GitHub → Settings → SSH and GPG keys → New GPG key → paste output of `gpg --armor --export <KEY_ID>`
 
 ---
 
