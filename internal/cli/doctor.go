@@ -114,9 +114,18 @@ func newDoctorCmd() *cobra.Command {
 			}
 
 			// Shell
-			ui.SubHeader("Shell")
+			ui.SubHeader("Shell Integration")
 			shellType := ctr.ShellManager.DetectShell()
 			ui.Print("  %s Detected: %s", ui.Green(ui.IconSuccess), string(shellType))
+			if shellType != "unknown" {
+				if installed, configFile := ctr.ShellManager.IsInstalled(shellType); installed {
+					ui.Print("  %s Hooks installed in %s", ui.Green(ui.IconSuccess), configFile)
+					ui.Print("    Auto-switching and prompt integration are active")
+				} else {
+					ui.Print("  %s Shell hooks not installed", ui.Yellow(ui.IconWarning))
+					ui.Print("    Auto-switching is disabled. Fix: run %s", ui.Cyan("gcm init"))
+				}
+			}
 
 			// Credential Helper
 			ui.SubHeader("Credential Helper")

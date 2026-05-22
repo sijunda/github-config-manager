@@ -9,15 +9,20 @@ import (
 )
 
 func newInitCmd() *cobra.Command {
+	var force bool
+
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Set up shell integration and credential helper",
 		Long: `Install shell hooks for auto-switching and prompt integration,
 and register GCM as the git credential helper for GitHub.
 
+Use --force to reinstall even if already configured.
+
 Examples:
-  gcm init                          # Auto-detect shell
-  SHELL=/bin/zsh gcm init           # Override detection via SHELL env var`,
+  gcm init                          # Auto-detect and install
+  gcm init --force                  # Force reinstall
+  SHELL=/bin/zsh gcm init           # Override shell detection`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			shellType := ctr.ShellManager.DetectShell()
 			if shellType == shell.ShellUnknown {
@@ -29,21 +34,40 @@ Examples:
 			ui.Header("%s Setting up GCM for %s", ui.IconRocket, string(shellType))
 			ui.Blank()
 
-			configFile, err := ctr.ShellManager.Install(shellType)
-			if err != nil {
-				if configFile != "" {
-					ui.Warning("%v", err)
-				} else {
+			installed, configFile := ctr.ShellManager.IsInstalled(shellType)
+
+			if installed && !force {
+				ui.Success("Shell integration already installed!")
+				ui.Detail("Shell", string(shellType))
+				ui.Detail("Config", configFile)
+				ui.Blank()
+				ui.Print("  To force reinstall: gcm init --force")
+			} else {
+				// Force reinstall: uninstall first if already present
+				if installed && force {
+					if _, err := ctr.ShellManager.Uninstall(shellType); err != nil {
+						ui.Warning("Could not uninstall existing hooks: %v", err)
+					}
+				}
+
+				newConfigFile, err := ctr.ShellManager.Install(shellType)
+				if err != nil {
 					return err
 				}
-				return nil
-			}
 
-			ui.Success("Shell integration installed!")
-			ctr.AuditLogger.Log(audit.ActionShellInit, "",
-				map[string]string{"shell": string(shellType), "config": configFile}, nil)
-			ui.Detail("Shell", string(shellType))
-			ui.Detail("Config", configFile)
+				if force && installed {
+					ui.Success("Shell integration reinstalled!")
+				} else {
+					ui.Success("Shell integration installed!")
+				}
+				ctr.AuditLogger.Log(audit.ActionShellInit, "",
+					map[string]string{"shell": string(shellType), "config": newConfigFile}, nil)
+				ui.Detail("Shell", string(shellType))
+				ui.Detail("Config", newConfigFile)
+
+				ui.Blank()
+				ui.Info("Restart your shell or run: source %s", newConfigFile)
+			}
 
 			// Register GCM as credential helper for GitHub
 			ui.Blank()
@@ -53,15 +77,9 @@ Examples:
 			} else {
 				ui.Success("Git credential helper registered!")
 				ui.Detail("Scope", "github.com")
-				ui.Print("  Git push/pull/clone will use GCM's encrypted token store directly.")
-				ui.Print("  External logout (VS Code, browser) will no longer affect git operations.")
 			}
 
-			ui.Blank()
-			ui.Info("Restart your shell or run: source %s", configFile)
-
 			// Clear global git identity if no profile is set as default.
-			// This ensures git won't use stale identity values.
 			if ctr.Config.DefaultProfile == "" {
 				_ = ctr.ProfileSwitcher.ClearGlobalIdentity()
 				ui.Blank()
@@ -74,5 +92,6 @@ Examples:
 		},
 	}
 
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force reinstall shell integration")
 	return cmd
 }

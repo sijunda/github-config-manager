@@ -715,3 +715,86 @@ func TestShellConfigFile_PowerShell_Windows(t *testing.T) {
 		t.Errorf("path = %q, expected Windows Documents path", path)
 	}
 }
+
+func TestIsInstalled_True(t *testing.T) {
+	m := newTestManager(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Install first
+	_, err := m.Install(ShellZsh)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	installed, configFile := m.IsInstalled(ShellZsh)
+	if !installed {
+		t.Error("expected IsInstalled to return true after Install")
+	}
+	if configFile == "" {
+		t.Error("expected configFile to be non-empty")
+	}
+}
+
+func TestIsInstalled_False(t *testing.T) {
+	m := newTestManager(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create .zshrc without any GCM markers
+	zshrc := filepath.Join(home, ".zshrc")
+	os.WriteFile(zshrc, []byte("# just normal shell config\nexport PATH=$PATH\n"), 0o644)
+
+	installed, configFile := m.IsInstalled(ShellZsh)
+	if installed {
+		t.Error("expected IsInstalled to return false when not installed")
+	}
+	if configFile == "" {
+		t.Error("expected configFile path to be returned even when not installed")
+	}
+}
+
+func TestIsInstalled_LegacyMarker(t *testing.T) {
+	m := newTestManager(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Write a file with the legacy marker
+	zshrc := filepath.Join(home, ".zshrc")
+	content := fmt.Sprintf("# some config\n%s\neval $(gcm init)\n", legacyMarker)
+	os.WriteFile(zshrc, []byte(content), 0o644)
+
+	installed, _ := m.IsInstalled(ShellZsh)
+	if !installed {
+		t.Error("expected IsInstalled to detect legacy marker")
+	}
+}
+
+func TestIsInstalled_UnsupportedShell(t *testing.T) {
+	m := newTestManager(t)
+	t.Setenv("HOME", t.TempDir())
+
+	installed, configFile := m.IsInstalled(ShellUnknown)
+	if installed {
+		t.Error("expected IsInstalled to return false for unknown shell")
+	}
+	if configFile != "" {
+		t.Errorf("expected empty configFile for unknown shell, got %q", configFile)
+	}
+}
+
+func TestIsInstalled_FileDoesNotExist(t *testing.T) {
+	m := newTestManager(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// Don't create .zshrc — file doesn't exist
+
+	installed, configFile := m.IsInstalled(ShellZsh)
+	if installed {
+		t.Error("expected IsInstalled to return false when config file doesn't exist")
+	}
+	// Should still return the config file path
+	if configFile == "" {
+		t.Error("expected configFile path even when file doesn't exist")
+	}
+}

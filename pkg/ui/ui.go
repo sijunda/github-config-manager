@@ -24,6 +24,7 @@ const (
 	IconDoctor   = "🏥"
 	IconRocket   = "🚀"
 	IconTemplate = "📋"
+	IconShell    = "🐚"
 )
 
 var (

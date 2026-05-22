@@ -123,6 +123,23 @@ func (m *Manager) installAt(path, hookCode string) ([]byte, error) {
 	return content, nil
 }
 
+// IsInstalled checks if shell integration is currently installed for the given shell.
+func (m *Manager) IsInstalled(shell ShellType) (bool, string) {
+	configFile, err := m.shellConfigFile(shell)
+	if err != nil {
+		return false, ""
+	}
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return false, configFile
+	}
+	content := string(data)
+	if strings.Contains(content, startMarker) || strings.Contains(content, legacyMarker) {
+		return true, configFile
+	}
+	return false, configFile
+}
+
 // Uninstall removes shell hooks. Supports both the current bracketed marker
 // format and the legacy single-marker format used in earlier versions.
 func (m *Manager) Uninstall(shell ShellType) (string, error) {

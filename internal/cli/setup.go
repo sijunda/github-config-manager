@@ -59,28 +59,16 @@ func runSetup(ctx context.Context) error {
 	ui.Print("Shell hooks enable auto-switching when you cd into projects.")
 	ui.Blank()
 
-	installShell, err := ui.AskConfirm("Install shell integration?", true)
-	if err != nil {
-		return err
-	}
-
-	if installShell {
-		shellType := ctr.ShellManager.DetectShell()
-		if shellType == shell.ShellUnknown {
-			ui.Warning("Could not detect your shell — skipping")
-		} else {
-			configFile, shellErr := ctr.ShellManager.Install(shellType)
-			if shellErr != nil {
-				ui.Warning("Shell integration: %v", shellErr)
-			} else {
-				ui.Success("Shell integration installed for %s", string(shellType))
-				ui.Detail("Config", configFile)
-				ctr.AuditLogger.Log(audit.ActionShellInit, "",
-					map[string]string{"shell": string(shellType), "config": configFile}, nil)
-			}
-		}
+	shellType := ctr.ShellManager.DetectShell()
+	if shellType == shell.ShellUnknown {
+		ui.Warning("Could not detect your shell")
+		ui.Info("Run %s after setting SHELL environment variable", ui.Cyan("gcm init"))
+	} else if installed, configFile := ctr.ShellManager.IsInstalled(shellType); installed {
+		ui.Success("Shell integration active for %s", string(shellType))
+		ui.Detail("Config", configFile)
 	} else {
-		ui.Info("Skipped — you can run %s later", ui.Cyan("gcm init"))
+		ui.Info("Shell integration not yet installed")
+		ui.Print("  Run %s to enable auto-switching and prompt integration", ui.Cyan("gcm init"))
 	}
 
 	// Register GCM as credential helper (always — this protects against
