@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 
 	"golang.org/x/term"
@@ -33,6 +34,43 @@ var readPasswordFn = func() ([]byte, error) {
 // interactiveSelectFn is a test hook for overriding interactive selection.
 var interactiveSelectFn = interactiveSelect
 
+// signalNotifyFn is a test hook for overriding signal notification setup.
+var signalNotifyFn = func(ch chan<- os.Signal) {
+	signal.Notify(ch, os.Interrupt)
+}
+
+// signalStopFn is a test hook for overriding signal stop.
+var signalStopFn = signal.Stop
+
+// lineResult holds the return values from a ReadString call.
+type lineResult struct {
+	line string
+	err  error
+}
+
+// readLineInterruptible reads a line from the given reader while listening for
+// OS interrupt signals. If SIGINT arrives before input is available, it returns
+// ErrInterrupted immediately.
+func readLineInterruptible(reader *bufio.Reader) (string, error) {
+	ch := make(chan lineResult, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		ch <- lineResult{line, err}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signalNotifyFn(sigCh)
+	defer signalStopFn(sigCh)
+
+	select {
+	case r := <-ch:
+		return r.line, r.err
+	case <-sigCh:
+		fmt.Fprintln(PromptOut)
+		return "", ErrInterrupted
+	}
+}
+
 // AskString prompts the user for a string input. If the user presses Enter
 // without typing anything, defaultVal is returned.
 func AskString(msg, defaultVal string) (string, error) {
@@ -41,9 +79,12 @@ func AskString(msg, defaultVal string) (string, error) {
 	}
 
 	reader := bufio.NewReader(PromptIn)
-	line, err := reader.ReadString('\n')
+	line, err := readLineInterruptible(reader)
 	if err != nil {
 		if errors.Is(err, io.EOF) && line == "" {
+			return "", ErrInterrupted
+		}
+		if errors.Is(err, ErrInterrupted) {
 			return "", ErrInterrupted
 		}
 		if !errors.Is(err, io.EOF) {
@@ -66,9 +107,14 @@ func AskPassword(msg string) (string, error) {
 
 	if !isTerminalFn() {
 		reader := bufio.NewReader(PromptIn)
-		line, err := reader.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
-			return "", err
+		line, err := readLineInterruptible(reader)
+		if err != nil {
+			if errors.Is(err, ErrInterrupted) {
+				return "", ErrInterrupted
+			}
+			if !errors.Is(err, io.EOF) {
+				return "", err
+			}
 		}
 		return strings.TrimRight(line, "\r\n"), nil
 	}
@@ -93,9 +139,12 @@ func AskConfirm(msg string, defaultVal bool) (bool, error) {
 		if _, err := fmt.Fprintf(PromptOut, "%s %s %s: ", Cyan("?"), msg, Dim(suffix)); err != nil {
 			return false, err
 		}
-		line, err := reader.ReadString('\n')
+		line, err := readLineInterruptible(reader)
 		if err != nil {
 			if errors.Is(err, io.EOF) && line == "" {
+				return false, ErrInterrupted
+			}
+			if errors.Is(err, ErrInterrupted) {
 				return false, ErrInterrupted
 			}
 			if !errors.Is(err, io.EOF) {

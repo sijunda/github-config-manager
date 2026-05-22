@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -1096,4 +1098,73 @@ func TestReadPasswordFn_DefaultBody(t *testing.T) {
 	if err == nil {
 		t.Log("readPasswordFn succeeded unexpectedly in test")
 	}
+}
+
+// withSignalInterrupt overrides signalNotifyFn to immediately send a signal,
+// simulating Ctrl+C during a prompt. It also sets PromptIn to a reader that
+// blocks (never returns), forcing the select to pick the signal branch.
+func withSignalInterrupt(fn func()) {
+	oldNotify := signalNotifyFn
+	oldStop := signalStopFn
+	oldIn := PromptIn
+	oldOut := PromptOut
+	defer func() {
+		signalNotifyFn = oldNotify
+		signalStopFn = oldStop
+		PromptIn = oldIn
+		PromptOut = oldOut
+	}()
+
+	// Use a reader that blocks forever (pipe with no writer).
+	pr, _ := io.Pipe()
+	PromptIn = pr
+	PromptOut = &bytes.Buffer{}
+
+	signalNotifyFn = func(ch chan<- os.Signal) {
+		// Immediately fire the interrupt signal.
+		go func() { ch <- os.Interrupt }()
+	}
+	signalStopFn = func(ch chan<- os.Signal) {}
+
+	fn()
+}
+
+func TestReadLineInterruptible_Signal(t *testing.T) {
+	withSignalInterrupt(func() {
+		reader := bufio.NewReader(PromptIn)
+		line, err := readLineInterruptible(reader)
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted, got %v", err)
+		}
+		if line != "" {
+			t.Errorf("expected empty line, got %q", line)
+		}
+	})
+}
+
+func TestAskString_Signal(t *testing.T) {
+	withSignalInterrupt(func() {
+		_, err := AskString("Name", "default")
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted, got %v", err)
+		}
+	})
+}
+
+func TestAskConfirm_Signal(t *testing.T) {
+	withSignalInterrupt(func() {
+		_, err := AskConfirm("Continue?", true)
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted, got %v", err)
+		}
+	})
+}
+
+func TestAskPassword_Signal(t *testing.T) {
+	withSignalInterrupt(func() {
+		_, err := AskPassword("Secret")
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted, got %v", err)
+		}
+	})
 }
