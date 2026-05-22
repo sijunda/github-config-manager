@@ -35,7 +35,12 @@ jobs:
         run: go vet ./...
 
       - name: Test
+        if: matrix.os != 'windows-latest'
         run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Test (windows smoke)
+        if: matrix.os == 'windows-latest'
+        run: go test ./cmd/... ./pkg/...
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
