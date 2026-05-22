@@ -159,7 +159,8 @@ Examples:
 				}
 				_ = ctr.ProfileManager.Update(p)
 			}
-
+			// Auto-activate globally if this is the first authenticated profile
+			activateAsGlobalIfFirst(profileName)
 			return nil
 		},
 	}
@@ -452,6 +453,9 @@ Examples:
 				_ = ctr.ProfileManager.Update(p)
 			}
 
+			// Auto-activate globally if this is the first authenticated profile
+			activateAsGlobalIfFirst(profileName)
+
 			return nil
 		},
 	}
@@ -562,6 +566,9 @@ Examples:
 				}
 				_ = ctr.ProfileManager.Update(p)
 			}
+
+			// Auto-activate globally if this is the first authenticated profile
+			activateAsGlobalIfFirst(profileName)
 
 			return nil
 		},

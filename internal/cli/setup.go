@@ -42,6 +42,14 @@ func runSetup(ctx context.Context) error {
 	ui.Print("This wizard will guide you through the complete setup.")
 	ui.Print("It takes about 2 minutes. You can skip any step.")
 	ui.Blank()
+
+	// Clear any existing global git identity so the only identity in git
+	// comes from GCM-managed profiles. This prevents commits with stale
+	// or unknown user.name/user.email values.
+	if ctr.Config.DefaultProfile == "" {
+		_ = ctr.ProfileSwitcher.ClearGlobalIdentity()
+	}
+
 	ui.Divider()
 
 	// ═══════════════════════════════════════════════
@@ -284,6 +292,8 @@ func runSetup(ctx context.Context) error {
 							p.GitHub.Username = user.Login
 							_ = ctr.ProfileManager.Update(p)
 						}
+						// Auto-activate globally if first authenticated profile
+						activateAsGlobalIfFirst(profileName)
 					}
 				}
 			}
@@ -332,6 +342,8 @@ func runSetup(ctx context.Context) error {
 							}
 							_ = ctr.ProfileManager.Update(p)
 						}
+						// Auto-activate globally if first authenticated profile
+						activateAsGlobalIfFirst(profileName)
 					}
 				}
 			}
@@ -355,10 +367,20 @@ func runSetup(ctx context.Context) error {
 	}
 
 	if activate {
+		// If not yet set as global default, activate globally first
+		if ctr.Config.DefaultProfile == "" {
+			if actErr := ctr.ProfileSwitcher.Activate(profileName, profile.ScopeGlobal); actErr != nil {
+				ui.Warning("Could not activate globally: %v", actErr)
+			} else {
+				ui.Success("Profile %q set as global default", profileName)
+			}
+		}
+
+		// Activate session for shell prompt indicator
 		if actErr := ctr.ProfileSwitcher.Activate(profileName, profile.ScopeSession); actErr != nil {
 			// Fallback to local scope
 			if actErr2 := ctr.ProfileSwitcher.Activate(profileName, profile.ScopeLocal); actErr2 != nil {
-				ui.Warning("Could not activate: %v", actErr2)
+				ui.Warning("Could not activate session: %v", actErr2)
 			} else {
 				ui.Success("Profile %q activated (local)", profileName)
 			}
@@ -366,7 +388,7 @@ func runSetup(ctx context.Context) error {
 			ui.Success("Profile %q activated (session)", profileName)
 		}
 		ctr.AuditLogger.Log(audit.ActionProfileActivate, profileName,
-			map[string]string{"scope": "session"}, nil)
+			map[string]string{"scope": "global"}, nil)
 	}
 
 	// ═══════════════════════════════════════════════
