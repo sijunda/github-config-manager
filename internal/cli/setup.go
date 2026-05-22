@@ -349,9 +349,14 @@ func runSetup(ctx context.Context) error {
 	ui.Header("Step 6/6: Activate Profile")
 	ui.Blank()
 
-	activate, err := ui.AskConfirm(fmt.Sprintf("Activate profile %q now?", profileName), true)
-	if err != nil {
-		return err
+	// If this is the only profile, activate automatically — no need to ask
+	allProfiles, _ := ctr.ProfileManager.List()
+	activate := true
+	if len(allProfiles) > 1 {
+		activate, err = ui.AskConfirm(fmt.Sprintf("Activate profile %q now?", profileName), true)
+		if err != nil {
+			return err
+		}
 	}
 
 	if activate {
