@@ -17,18 +17,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Replaceable for testing.
+var (
+	configLoad           = config.Load
+	configEnsureDirs     = config.EnsureDirs
+	osExit               = os.Exit
+	masterPasswordPrompt = func(msg string) (string, error) {
+		return ui.AskPassword(msg)
+	}
+)
+
 func main() {
+	osExit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
 	// Load configuration
-	cfg, err := config.Load()
+	cfg, err := configLoad()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Ensure data directories exist
-	if err := config.EnsureDirs(cfg); err != nil {
+	if err := configEnsureDirs(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating directories: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Initialize logger
@@ -51,9 +65,7 @@ func main() {
 	// Wire the master-password prompt so encrypted token storage can ask
 	// the user interactively. Uses the ui.AskPassword helper which
 	// suppresses echo when stdin is a terminal.
-	ctr.SetMasterPasswordPrompt(func(msg string) (string, error) {
-		return ui.AskPassword(msg)
-	})
+	ctr.SetMasterPasswordPrompt(masterPasswordPrompt)
 
 	// Wire CLI commands
 	cli.SetContainer(ctr)
@@ -77,6 +89,7 @@ func main() {
 	}
 
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SetArgs(args)
 
 	// Cancel in-flight API calls on SIGINT/SIGTERM so resources are freed
 	// promptly on Ctrl-C rather than waiting for the HTTP timeout.
@@ -86,9 +99,10 @@ func main() {
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		ui.Error("%v", err)
 		ctr.TokenStore.ZeroPassword()
-		os.Exit(1)
+		return 1
 	}
 
 	// Zero sensitive material from memory before process exit.
 	ctr.TokenStore.ZeroPassword()
+	return 0
 }

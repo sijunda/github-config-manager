@@ -540,6 +540,45 @@ func TestManagerDelete_ActiveProfile(t *testing.T) {
 	}
 }
 
+func TestManagerDelete_ForceActiveProfile(t *testing.T) {
+	mgr, cfg := newTestManager(t)
+	mgr.Create(validProfile("active"))
+
+	// Write .gcm-profile marking it active
+	tmp := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmp)
+	defer os.Chdir(origDir)
+	os.WriteFile(cfg.AutoSwitch.ProjectFile, []byte("active\n"), 0o644)
+
+	// Force delete should succeed
+	err := mgr.Delete("active", true)
+	if err != nil {
+		t.Fatalf("Delete(force=true) should succeed: %v", err)
+	}
+	if mgr.Exists("active") {
+		t.Error("profile should not exist after force delete")
+	}
+}
+
+func TestManagerDelete_ForceDefaultProfile(t *testing.T) {
+	mgr, cfg := newTestManager(t)
+	mgr.Create(validProfile("mydefault"))
+	cfg.DefaultProfile = "mydefault"
+
+	// Force delete should succeed and clear DefaultProfile
+	err := mgr.Delete("mydefault", true)
+	if err != nil {
+		t.Fatalf("Delete(force=true) should succeed: %v", err)
+	}
+	if mgr.Exists("mydefault") {
+		t.Error("profile should not exist after force delete")
+	}
+	if cfg.DefaultProfile != "" {
+		t.Errorf("DefaultProfile should be cleared, got %q", cfg.DefaultProfile)
+	}
+}
+
 func TestManagerUpdate_MetadataUpdated(t *testing.T) {
 	mgr, _ := newTestManager(t)
 	mgr.Create(validProfile("meta"))
