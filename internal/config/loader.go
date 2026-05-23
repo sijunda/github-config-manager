@@ -17,6 +17,7 @@ var (
 	statFn        = os.Stat
 	removeFn      = os.Remove
 	renameFn      = os.Rename
+	configPathFn  = func() string { return filepath.Join(GCMDir(), "config.yaml") }
 )
 
 type tempFile interface {
@@ -99,7 +100,15 @@ func Save(cfg *Config) error {
 
 // ConfigPath returns the full path to the config file.
 func ConfigPath() string {
-	return filepath.Join(GCMDir(), "config.yaml")
+	return configPathFn()
+}
+
+// SetConfigPathForTesting overrides ConfigPath to return the given path.
+// It returns a restore function that must be deferred by the caller.
+func SetConfigPathForTesting(path string) func() {
+	orig := configPathFn
+	configPathFn = func() string { return path }
+	return func() { configPathFn = orig }
 }
 
 // EnsureDirs creates all required GCM directories.
