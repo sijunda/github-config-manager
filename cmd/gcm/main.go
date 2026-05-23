@@ -1,4 +1,4 @@
-// GCM is the Git Config Manager CLI entry point.
+// GCM is the GitHub Config Manager CLI entry point.
 package main
 
 import (

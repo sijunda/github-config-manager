@@ -1543,3 +1543,100 @@ func TestCurrent_DetectSessionProfileByEmail(t *testing.T) {
 		t.Errorf("scope = %v, want ScopeSession", scope)
 	}
 }
+
+func TestDeactivate_NotActive(t *testing.T) {
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("inactive"))
+
+	// Deactivate a profile that isn't active — should be a no-op
+	sw.Deactivate("inactive")
+}
+
+func TestDeactivate_GlobalScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("deact-global"))
+
+	// chdir to a non-git temp dir so session detection doesn't fire
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	// Simulate global activation by setting DefaultProfile
+	cfg.DefaultProfile = "deact-global"
+
+	sw.Deactivate("deact-global")
+
+	if cfg.DefaultProfile != "" {
+		t.Errorf("DefaultProfile should be cleared, got %q", cfg.DefaultProfile)
+	}
+}
+
+func TestDeactivate_LocalScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, cfg := newTestSwitcher(t)
+	mgr.Create(validProfile("deact-local"))
+
+	// Create a non-git temp dir with a .gcm-profile file
+	tmpDir := t.TempDir()
+	profileFile := filepath.Join(tmpDir, cfg.AutoSwitch.ProjectFile)
+	os.WriteFile(profileFile, []byte("deact-local\n"), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	sw.Deactivate("deact-local")
+
+	// The .gcm-profile file should be removed
+	if _, err := os.Stat(profileFile); err == nil {
+		t.Error("expected .gcm-profile to be removed after deactivation")
+	}
+}
+
+func TestDeactivate_SessionScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+
+	sw, mgr, _ := newTestSwitcher(t)
+	mgr.Create(validProfile("deact-session"))
+
+	// Create a real git repo and activate session
+	gitDir := t.TempDir()
+	cmd := exec.Command("git", "init", gitDir)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(gitDir)
+	defer os.Chdir(origDir)
+
+	// Activate session so Current() will find it
+	if err := sw.Activate("deact-session", ScopeSession); err != nil {
+		t.Fatalf("Activate session: %v", err)
+	}
+
+	// Verify it's active
+	name, _, err := sw.Current()
+	if err != nil || name != "deact-session" {
+		t.Fatalf("expected deact-session active, got %q err=%v", name, err)
+	}
+
+	sw.Deactivate("deact-session")
+
+	// Session marker should be removed
+	markerPath := filepath.Join(gitDir, ".git", "gcm-session")
+	if _, err := os.Stat(markerPath); err == nil {
+		t.Error("expected session marker to be removed after deactivation")
+	}
+}

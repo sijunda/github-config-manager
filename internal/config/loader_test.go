@@ -150,6 +150,75 @@ func TestDefaultConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestSetConfigPathForTesting(t *testing.T) {
+	origPath := ConfigPath()
+	customPath := "/tmp/test-gcm/config.yaml"
+
+	restore := SetConfigPathForTesting(customPath)
+	if got := ConfigPath(); got != customPath {
+		t.Errorf("ConfigPath() = %q, want %q", got, customPath)
+	}
+
+	restore()
+	if got := ConfigPath(); got != origPath {
+		t.Errorf("after restore: ConfigPath() = %q, want %q", got, origPath)
+	}
+}
+
+func TestValidateConfigPaths_AbsoluteGitCommand_NotExist(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Advanced.GitCommand = "/nonexistent/path/to/fakegit"
+
+	err := validateConfigPaths(cfg, "/some/config.yaml")
+	if err == nil {
+		t.Fatal("expected error for non-existent absolute git_command path")
+	}
+	if !strings.Contains(err.Error(), "refusing to save") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateConfigPaths_AbsoluteGitCommand_Exists(t *testing.T) {
+	tmp := t.TempDir()
+	fakeGit := filepath.Join(tmp, "git")
+	os.WriteFile(fakeGit, []byte("#!/bin/sh\n"), 0755)
+
+	cfg := DefaultConfig()
+	cfg.Advanced.GitCommand = fakeGit
+
+	err := validateConfigPaths(cfg, "/some/config.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateConfigPaths_RelativeGitCommand(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Advanced.GitCommand = "custom-git"
+
+	err := validateConfigPaths(cfg, "/some/config.yaml")
+	if err != nil {
+		t.Fatalf("unexpected error for relative git command: %v", err)
+	}
+}
+
+func TestSave_ValidateConfigPathsRejectsInvalid(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	os.MkdirAll(filepath.Join(home, ".gcm"), 0755)
+
+	cfg := DefaultConfig()
+	cfg.Advanced.GitCommand = "/nonexistent/fakegit/binary"
+
+	err := Save(cfg)
+	if err == nil {
+		t.Fatal("expected Save to fail when git_command is invalid absolute path")
+	}
+	if !strings.Contains(err.Error(), "refusing to save") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestConfigPath_Format(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

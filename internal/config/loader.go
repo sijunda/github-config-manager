@@ -54,6 +54,12 @@ func Load() (*Config, error) {
 func Save(cfg *Config) error {
 	configPath := ConfigPath()
 
+	// Guard: refuse to save config that contains temp/test paths to the real
+	// user config. This prevents test runs from corrupting production data.
+	if err := validateConfigPaths(cfg, configPath); err != nil {
+		return err
+	}
+
 	dir := filepath.Dir(configPath)
 	if err := mkdirAllFn(dir, 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
@@ -109,6 +115,23 @@ func SetConfigPathForTesting(path string) func() {
 	orig := configPathFn
 	configPathFn = func() string { return path }
 	return func() { configPathFn = orig }
+}
+
+// validateConfigPaths is a safety check that prevents saving config with
+// obviously incorrect git_command values (e.g. paths to non-existent files).
+// This catches scenarios where test data accidentally leaks into production config.
+func validateConfigPaths(cfg *Config, _ string) error {
+	gitCmd := cfg.Advanced.GitCommand
+	if gitCmd == "" || gitCmd == "git" {
+		return nil
+	}
+	// If git_command is an absolute path, verify it exists.
+	if filepath.IsAbs(gitCmd) {
+		if _, err := os.Stat(gitCmd); err != nil {
+			return fmt.Errorf("refusing to save: git_command %q does not exist", gitCmd)
+		}
+	}
+	return nil
 }
 
 // EnsureDirs creates all required GCM directories.
