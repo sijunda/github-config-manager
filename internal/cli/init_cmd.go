@@ -1,9 +1,9 @@
 package cli
 
 import (
-	"github-config-manager/internal/audit"
-	"github-config-manager/internal/shell"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/audit"
+	"git-config-manager/internal/shell"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

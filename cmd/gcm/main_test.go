@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github-config-manager/internal/config"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/config"
+	"git-config-manager/pkg/ui"
 )
 
 // mockDeps replaces configLoad and configEnsureDirs with no-op stubs that

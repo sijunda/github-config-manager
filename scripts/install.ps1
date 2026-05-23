@@ -1,4 +1,4 @@
-# GCM (GitHub Config Manager) installation script for Windows
+# GCM (Git Config Manager) installation script for Windows
 # This script installs gcm to $env:USERPROFILE\.local\bin and adds it to PATH
 
 param(
@@ -59,7 +59,7 @@ function Print-Header {
     Write-Host "     ╚═════╝  ╚═════╝╚═╝     ╚═╝"
     Write-Host ""
     Write-Host ""
-    Write-Host "$($Colors.Bold)$($Colors.White)                GitHub Config Manager Installer$($Colors.Reset)"
+    Write-Host "$($Colors.Bold)$($Colors.White)                Git Config Manager Installer$($Colors.Reset)"
     Write-Host "$($Colors.Dim)$($Colors.Gray)            Fast and secure installation process$($Colors.Reset)"
     Write-Host ""
     Print-Separator "═"
@@ -103,7 +103,7 @@ function Print-Install {
 
 # Show help information
 function Show-Help {
-    Write-Host "GCM installer - GitHub Config Manager Installation Script for Windows"
+    Write-Host "GCM installer - Git Config Manager Installation Script for Windows"
     Write-Host ""
     Write-Host "Usage: .\install.ps1 [OPTIONS]"
     Write-Host ""
@@ -137,7 +137,7 @@ function Get-LatestVersion {
     }
 
     try {
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/sijunda/github-config-manager/releases/latest" -TimeoutSec 30
+        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/sijunda/git-config-manager/releases/latest" -TimeoutSec 30
         return $response.tag_name
     }
     catch {
@@ -219,7 +219,7 @@ function Download-Binary {
     $arch = $parts[1]
 
     # Construct download URL
-    $downloadUrl = "https://github.com/sijunda/github-config-manager/releases/download/$DownloadVersion/gcm-$os-$arch.exe"
+    $downloadUrl = "https://github.com/sijunda/git-config-manager/releases/download/$DownloadVersion/gcm-$os-$arch.exe"
     $binaryPath = Join-Path $InstallDir "gcm.exe"
 
     Print-Step "Downloading gcm $DownloadVersion for $Platform..."

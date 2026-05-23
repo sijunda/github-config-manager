@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github-config-manager/internal/audit"
-	"github-config-manager/internal/gpg"
-	"github-config-manager/internal/profile"
-	"github-config-manager/internal/shell"
-	"github-config-manager/internal/ssh"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/audit"
+	"git-config-manager/internal/gpg"
+	"git-config-manager/internal/profile"
+	"git-config-manager/internal/shell"
+	"git-config-manager/internal/ssh"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

@@ -14,7 +14,7 @@ Be respectful, constructive, and inclusive. We follow the [Contributor Covenant]
 
 ### Reporting Bugs
 
-1. Check [existing issues](https://github.com/sijunda/github-config-manager/issues) first
+1. Check [existing issues](https://github.com/sijunda/git-config-manager/issues) first
 2. Open a new issue with:
    - Output of `gcm version` and `gcm doctor`
    - Steps to reproduce
@@ -48,8 +48,8 @@ Documentation lives in `docs/`. See [Project Structure](project-structure.md) fo
 ### Clone and Build
 
 ```bash
-git clone https://github.com/sijunda/github-config-manager.git
-cd github-config-manager
+git clone https://github.com/sijunda/git-config-manager.git
+cd git-config-manager
 make build        # produces ./bin/gcm
 ```
 
@@ -222,7 +222,7 @@ docs/             Documentation
 
 ## Getting Help
 
-- **Issues:** https://github.com/sijunda/github-config-manager/issues
+- **Issues:** https://github.com/sijunda/git-config-manager/issues
 - **Discussions:** Open a discussion on the repo
 - **Code:** See [Architecture](architecture.md) and [Project Structure](project-structure.md)
 - **Docs:** See [index.md](index.md) for the full documentation map

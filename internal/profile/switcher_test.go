@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github-config-manager/internal/config"
-	fileSvc "github-config-manager/internal/service/file"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/config"
+	fileSvc "git-config-manager/internal/service/file"
+	"git-config-manager/pkg/logger"
 )
 
 func newTestSwitcher(t *testing.T) (*Switcher, *Manager, *config.Config) {

@@ -123,7 +123,7 @@ GCM makes extensive use of Go's standard library, avoiding external dependencies
 
 ```mermaid
 graph TD
-    GCM[github-config-manager] --> cobra[spf13/cobra]
+    GCM[git-config-manager] --> cobra[spf13/cobra]
     GCM --> yaml[yaml.v3]
     GCM --> keyring[go-keyring]
     GCM --> xcrypto[x/crypto]

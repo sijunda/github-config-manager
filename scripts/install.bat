@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM GCM (GitHub Config Manager) installation script for Windows Command Prompt
+REM GCM (Git Config Manager) installation script for Windows Command Prompt
 REM This script installs gcm to %USERPROFILE%\.local\bin and adds it to PATH
 
 REM Parse command line arguments
@@ -99,7 +99,7 @@ goto :eof
 REM Functions start here
 
 :show_help
-echo GCM installer - GitHub Config Manager Installation Script for Windows
+echo GCM installer - Git Config Manager Installation Script for Windows
 echo.
 echo Usage: %~nx0 [OPTIONS]
 echo.
@@ -128,7 +128,7 @@ echo     ╚██████╔╝╚██████╗██║ ╚═╝ 
 echo      ╚═════╝  ╚═════╝╚═╝     ╚═╝
 echo.
 echo.
-echo %BOLD%%WHITE%                GitHub Config Manager Installer%RESET%
+echo %BOLD%%WHITE%                Git Config Manager Installer%RESET%
 echo %DIM%%GRAY%            Fast and secure installation process%RESET%
 echo.
 call :print_separator "="
@@ -192,7 +192,7 @@ if not "%SPECIFIC_VERSION%"=="" (
 )
 
 REM Try to get latest version using PowerShell
-for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/sijunda/github-config-manager/releases/latest' -TimeoutSec 30).tag_name" 2^>nul') do set "LATEST_VERSION=%%i"
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Invoke-RestMethod -Uri 'https://api.github.com/repos/sijunda/git-config-manager/releases/latest' -TimeoutSec 30).tag_name" 2^>nul') do set "LATEST_VERSION=%%i"
 
 if "%LATEST_VERSION%"=="" (
     call :print_error "Failed to get latest version information"
@@ -275,7 +275,7 @@ goto :eof
 :download_binary
 call :print_step "Downloading gcm %LATEST_VERSION% for %PLATFORM%..."
 
-set "DOWNLOAD_URL=https://github.com/sijunda/github-config-manager/releases/download/%LATEST_VERSION%/gcm-%PLATFORM_OS%-%PLATFORM_ARCH%.exe"
+set "DOWNLOAD_URL=https://github.com/sijunda/git-config-manager/releases/download/%LATEST_VERSION%/gcm-%PLATFORM_OS%-%PLATFORM_ARCH%.exe"
 set "BINARY_PATH=%INSTALL_DIR%\gcm.exe"
 
 call :print_info "Download URL: %DOWNLOAD_URL%"

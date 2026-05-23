@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github-config-manager/pkg/logger"
+	"git-config-manager/pkg/logger"
 )
 
 // ShellType represents the user's shell.

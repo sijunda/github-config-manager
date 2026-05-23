@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github-config-manager/internal/profile"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/profile"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

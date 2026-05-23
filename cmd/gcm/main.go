@@ -1,4 +1,4 @@
-// GCM is the GitHub Config Manager CLI entry point.
+// GCM is the Git Config Manager CLI entry point.
 package main
 
 import (
@@ -8,11 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github-config-manager/internal/cli"
-	"github-config-manager/internal/config"
-	"github-config-manager/internal/container"
-	"github-config-manager/pkg/logger"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/cli"
+	"git-config-manager/internal/config"
+	"git-config-manager/internal/container"
+	"git-config-manager/pkg/logger"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

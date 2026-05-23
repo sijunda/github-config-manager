@@ -337,7 +337,7 @@ gcm ssh generate --help
 
 If you've found a bug, please open an issue at:
 
-https://github.com/sijunda/github-config-manager/issues
+https://github.com/sijunda/git-config-manager/issues
 
 Include:
 - Output of `gcm version`

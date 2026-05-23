@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM GCM (GitHub Config Manager) uninstallation script for Windows Command Prompt
+REM GCM (Git Config Manager) uninstallation script for Windows Command Prompt
 REM This script removes gcm from %USERPROFILE%\.local\bin and cleans PATH
 
 REM Parse command line arguments
@@ -128,7 +128,7 @@ goto :eof
 REM Functions start here
 
 :show_help
-echo GCM uninstaller - GitHub Config Manager Uninstallation Script for Windows
+echo GCM uninstaller - Git Config Manager Uninstallation Script for Windows
 echo.
 echo Usage: %~nx0 [OPTIONS]
 echo.
@@ -153,7 +153,7 @@ echo     ╚██████╔╝╚██████╗██║ ╚═╝ 
 echo      ╚═════╝  ╚═════╝╚═╝     ╚═╝
 echo.
 echo.
-echo %BOLD%%WHITE%              GitHub Config Manager Uninstaller%RESET%
+echo %BOLD%%WHITE%              Git Config Manager Uninstaller%RESET%
 echo %DIM%%GRAY%            Safe and complete uninstallation process%RESET%
 echo.
 call :print_separator "="

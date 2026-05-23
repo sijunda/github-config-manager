@@ -1,7 +1,7 @@
 # GCM Documentation
 
 <p align="center">
-  <strong>GitHub Config Manager — Manage your Git identities with ease</strong>
+  <strong>Git Config Manager — Manage your Git identities with ease</strong>
 </p>
 
 **GCM** is a command-line tool that manages multiple complete Git identities — not just `user.name` and `user.email`, but also SSH keys, GPG signing keys, GitHub tokens, and editor preferences — and switches between them with one command.

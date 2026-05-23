@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	githubpkg "github-config-manager/internal/github"
+	githubpkg "git-config-manager/internal/github"
 
 	"github.com/spf13/cobra"
 )

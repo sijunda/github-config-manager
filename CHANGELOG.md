@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+
 ### Added
 - **`gcm ssh upload` / `gcm gpg upload`** — Standalone commands to upload SSH/GPG keys to GitHub with automatic duplicate detection. Use `--force` to skip the check
 - **Auto-upload duplicate detection** — `gcm ssh generate` and `gcm gpg generate` now check if the key already exists on GitHub before offering to upload, preventing duplicates

@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github-config-manager/pkg/ui"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

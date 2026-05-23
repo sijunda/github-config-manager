@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github-config-manager/internal/config"
+	"git-config-manager/internal/config"
 )
 
 // marshalFn is used by write to serialize entries. Tests may override it.

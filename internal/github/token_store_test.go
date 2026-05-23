@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github-config-manager/internal/config"
-	cryptoSvc "github-config-manager/internal/service/crypto"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/config"
+	cryptoSvc "git-config-manager/internal/service/crypto"
+	"git-config-manager/pkg/logger"
 
 	"github.com/zalando/go-keyring"
 )

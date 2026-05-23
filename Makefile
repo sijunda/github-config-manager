@@ -1,7 +1,7 @@
-# GitHub Config Manager - Makefile
+# Git Config Manager - Makefile
 
 BINARY_NAME=gcm
-MODULE=github-config-manager
+MODULE=git-config-manager
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE?=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')

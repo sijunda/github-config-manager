@@ -8,7 +8,7 @@ Definitions for terms used throughout GCM documentation and source code.
 
 | Term | Definition |
 | ---- | ---------- |
-| **GCM** | GitHub Config Manager — the CLI tool described in this documentation |
+| **GCM** | Git Config Manager — the CLI tool described in this documentation |
 | **Profile** | A named Git identity containing user info, SSH, GPG, and GitHub configuration |
 | **Identity** | The combination of `user.name`, `user.email`, SSH key, GPG key, and GitHub account that represents "who you are" to Git |
 | **Active profile** | The profile currently applied to your Git configuration in the shell session |
@@ -124,7 +124,7 @@ Definitions for terms used throughout GCM documentation and source code.
 
 | Abbreviation | Full Form |
 | ------------ | --------- |
-| GCM | GitHub Config Manager |
+| GCM | Git Config Manager |
 | CLI | Command-Line Interface |
 | SSH | Secure Shell |
 | GPG | GNU Privacy Guard |

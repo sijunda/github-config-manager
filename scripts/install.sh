@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GCM (GitHub Config Manager) installation script
+# GCM (Git Config Manager) installation script
 # This script installs gcm to $HOME/.local/bin and configures shell integration
 set -e
 
@@ -34,7 +34,7 @@ parse_arguments() {
 
 # Show help information
 show_help() {
-    echo "GCM installer - GitHub Config Manager Installation Script"
+    echo "GCM installer - Git Config Manager Installation Script"
     echo
     echo "Usage: $0 [OPTIONS]"
     echo
@@ -100,7 +100,7 @@ print_header() {
     echo '     ╚═════╝  ╚═════╝╚═╝     ╚═╝'
     echo
     echo
-    echo -e "${BOLD}${WHITE}                GitHub Config Manager Installer${NC}"
+    echo -e "${BOLD}${WHITE}                Git Config Manager Installer${NC}"
     echo -e "${DIM}${GRAY}            Fast and secure installation process${NC}"
     echo
     print_separator "═"
@@ -256,9 +256,9 @@ get_latest_version() {
 
     local version=""
     if command -v curl >/dev/null 2>&1; then
-        version=$(curl -s https://api.github.com/repos/sijunda/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(curl -s https://api.github.com/repos/sijunda/git-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     elif command -v wget >/dev/null 2>&1; then
-        version=$(wget -qO- https://api.github.com/repos/sijunda/github-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(wget -qO- https://api.github.com/repos/sijunda/git-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     else
         print_error "Either curl or wget is required to download gcm"
         exit 1
@@ -361,7 +361,7 @@ download_binary() {
     fi
 
     # Construct download URL
-    local download_url="https://github.com/sijunda/github-config-manager/releases/download/${version}/gcm-${os}-${arch}"
+    local download_url="https://github.com/sijunda/git-config-manager/releases/download/${version}/gcm-${os}-${arch}"
     if [[ "$os" == "windows" ]]; then
         download_url="${download_url}.exe"
     fi
@@ -441,8 +441,8 @@ configure_path_manually() {
     local config_file=$(echo "$shell_info" | cut -d':' -f2)
 
     local path_line="export PATH=\"${install_dir}:\$PATH\""
-    local marker_start="# >>> GCM (GitHub Config Manager) >>>"
-    local marker_end="# <<< GCM (GitHub Config Manager) <<<"
+    local marker_start="# >>> GCM (Git Config Manager) >>>"
+    local marker_end="# <<< GCM (Git Config Manager) <<<"
 
     if [[ "$config_file" == "your shell's configuration file" ]]; then
         print_warning "Could not detect shell config file. Please add manually:"

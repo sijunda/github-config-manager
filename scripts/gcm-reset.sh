@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# gcm-reset.sh — Full cleanup script for GCM (GitHub Config Manager)
+# gcm-reset.sh — Full cleanup script for GCM (Git Config Manager)
 #
 # What this script cleans:
 #   1. Git global identity (user.name, user.email, signingkey, commit.gpgsign)

@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github-config-manager/internal/config"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/config"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

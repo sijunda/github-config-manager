@@ -7,7 +7,7 @@ A complete map of every directory and file in the GCM codebase, with purpose and
 ## Top-Level Layout
 
 ```
-github-config-manager/
+git-config-manager/
 ├── cmd/gcm/main.go           # Entry point
 ├── internal/                  # Private application code
 │   ├── audit/                 # Audit logging
@@ -312,7 +312,7 @@ Variables are populated at build time via `-ldflags`:
 | File              | Purpose                                               |
 | ----------------- | ----------------------------------------------------- |
 | `Makefile`        | `build`, `build-all`, `test`, `lint`, `fmt`, `install`, `install-system`, `release` |
-| `go.mod`          | Module path: `github-config-manager`, Go 1.26+        |
+| `go.mod`          | Module path: `git-config-manager`, Go 1.26+        |
 | `go.sum`          | Dependency checksums                                  |
 
 ---

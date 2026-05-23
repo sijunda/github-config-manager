@@ -1,4 +1,4 @@
-# GCM (GitHub Config Manager) uninstallation script for Windows
+# GCM (Git Config Manager) uninstallation script for Windows
 # This script removes gcm from $env:USERPROFILE\.local\bin and cleans PATH
 
 param(
@@ -57,7 +57,7 @@ function Print-Header {
     Write-Host "     ╚═════╝  ╚═════╝╚═╝     ╚═╝"
     Write-Host ""
     Write-Host ""
-    Write-Host "$($Colors.Bold)$($Colors.White)              GitHub Config Manager Uninstaller$($Colors.Reset)"
+    Write-Host "$($Colors.Bold)$($Colors.White)              Git Config Manager Uninstaller$($Colors.Reset)"
     Write-Host "$($Colors.Dim)$($Colors.Gray)            Safe and complete uninstallation process$($Colors.Reset)"
     Write-Host ""
     Print-Separator "═"
@@ -97,7 +97,7 @@ function Print-Clean {
 
 # Show help information
 function Show-Help {
-    Write-Host "GCM uninstaller - GitHub Config Manager Uninstallation Script for Windows"
+    Write-Host "GCM uninstaller - Git Config Manager Uninstallation Script for Windows"
     Write-Host ""
     Write-Host "Usage: .\uninstall.ps1 [OPTIONS]"
     Write-Host ""

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GCM (GitHub Config Manager) uninstallation script
+# GCM (Git Config Manager) uninstallation script
 # This script removes gcm from $HOME/.local/bin and cleans shell configuration
 set -e
 
@@ -53,7 +53,7 @@ print_header() {
     echo '     ╚═════╝  ╚═════╝╚═╝     ╚═╝'
     echo
     echo
-    echo -e "${BOLD}${WHITE}              GitHub Config Manager Uninstaller${NC}"
+    echo -e "${BOLD}${WHITE}              Git Config Manager Uninstaller${NC}"
     echo -e "${DIM}${GRAY}            Safe and complete uninstallation process${NC}"
     echo
     print_separator "═"

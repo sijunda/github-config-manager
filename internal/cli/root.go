@@ -2,8 +2,8 @@
 package cli
 
 import (
-	"github-config-manager/internal/container"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/container"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -20,11 +20,11 @@ func SetContainer(c *container.Container) {
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "gcm",
-		Short: "GitHub Config Manager",
-		Long: `GitHub Config Manager (GCM) - Manage your Git identities with ease.
+		Short: "Git Config Manager",
+		Long: `Git Config Manager (GCM) - Manage your Git identities with ease.
 
 GCM helps you manage multiple Git identities, SSH keys, GPG keys,
-and GitHub accounts from a single, intuitive CLI tool.
+and GitHub/GitLab accounts from a single, intuitive CLI tool.
 
 ` + ui.Bold("Getting Started") + `
   gcm setup                     Guided first-time setup (start here!)

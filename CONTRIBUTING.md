@@ -1,6 +1,6 @@
 # Contributing to GCM
 
-Thank you for your interest in contributing to GitHub Config Manager!
+Thank you for your interest in contributing to Git Config Manager!
 
 ## Development Setup
 

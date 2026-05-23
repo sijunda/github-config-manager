@@ -1,4 +1,4 @@
-module github-config-manager
+module git-config-manager
 
 go 1.26.0
 

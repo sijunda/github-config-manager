@@ -8,7 +8,7 @@ Frequently asked questions about GCM.
 
 ### What is GCM?
 
-GCM (GitHub Config Manager) is a CLI tool that manages multiple complete Git identities — `user.name`, `user.email`, SSH keys, GPG signing keys, GitHub tokens, and editor preferences — and switches between them with one command.
+GCM (Git Config Manager) is a CLI tool that manages multiple complete Git identities — `user.name`, `user.email`, SSH keys, GPG signing keys, GitHub tokens, and editor preferences — and switches between them with one command.
 
 ### Why do I need GCM?
 
@@ -37,15 +37,15 @@ GCM's profile management (Git config, SSH keys, GPG signing) works with any Git 
 Build from source (Go 1.26+ required):
 
 ```bash
-git clone https://github.com/sijunda/github-config-manager.git
-cd github-config-manager
+git clone https://github.com/sijunda/git-config-manager.git
+cd git-config-manager
 make build && make install
 ```
 
 Or via `go install`:
 
 ```bash
-go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/git-config-manager/cmd/gcm@latest
 ```
 
 See [Installation](installation.md) for details.
@@ -348,7 +348,7 @@ gcm --help
 gcm <command> --help
 ```
 
-Or open an issue: https://github.com/sijunda/github-config-manager/issues
+Or open an issue: https://github.com/sijunda/git-config-manager/issues
 
 ---
 

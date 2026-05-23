@@ -24,9 +24,9 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X github-config-manager/pkg/version.Version={{.Version}}
-      - -X github-config-manager/pkg/version.Commit={{.Commit}}
-      - -X github-config-manager/pkg/version.Date={{.Date}}
+      - -X git-config-manager/pkg/version.Version={{.Version}}
+      - -X git-config-manager/pkg/version.Commit={{.Commit}}
+      - -X git-config-manager/pkg/version.Date={{.Date}}
 
 archives:
   - format: tar.gz
@@ -56,7 +56,7 @@ brews:
       name: homebrew-tap
     directory: Formula
     homepage: "https://gcm.dev"
-    description: "GitHub Config Manager - Manage your Git identities with ease"
+    description: "Git Config Manager - Manage your Git identities with ease"
     license: "MIT"
     install: |
       bin.install "gcm"
@@ -68,5 +68,5 @@ scoops:
       owner: gcm
       name: scoop-bucket
     homepage: "https://gcm.dev"
-    description: "GitHub Config Manager - Manage your Git identities with ease"
+    description: "Git Config Manager - Manage your Git identities with ease"
     license: "MIT"

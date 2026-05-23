@@ -1,6 +1,6 @@
 # GCM Complete Usage Guide
 
-> **GitHub Config Manager (`gcm`)** — a single CLI to juggle multiple Git, SSH, GPG, and GitHub identities on one machine. This guide walks you end-to-end: install, first profile, daily flow, every sub-command, troubleshooting, and uninstall.
+> **Git Config Manager (`gcm`)** — a single CLI to juggle multiple Git, SSH, GPG, and GitHub identities on one machine. This guide walks you end-to-end: install, first profile, daily flow, every sub-command, troubleshooting, and uninstall.
 
 ---
 
@@ -87,8 +87,8 @@ Run `gcm doctor` any time to verify the environment.
 ### Option A — build from source
 
 ```bash
-git clone https://github.com/sijunda/github-config-manager.git
-cd github-config-manager
+git clone https://github.com/sijunda/git-config-manager.git
+cd git-config-manager
 make build            # produces ./bin/gcm
 make install          # copies to $(go env GOPATH)/bin/gcm (no sudo)
 # or: make install-system   # copies to /usr/local/bin/gcm (needs sudo)
@@ -111,7 +111,7 @@ gcm version
 ### Option C — `go install`
 
 ```bash
-go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/git-config-manager/cmd/gcm@latest
 ```
 
 Make sure `$(go env GOPATH)/bin` is on your `PATH`.

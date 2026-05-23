@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github-config-manager/internal/config"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/config"
+	"git-config-manager/pkg/logger"
 )
 
 func testManager(t *testing.T) (*Manager, string) {

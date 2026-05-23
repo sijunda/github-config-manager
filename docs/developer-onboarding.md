@@ -69,12 +69,12 @@ Add a setup section to your project's `README.md` or `CONTRIBUTING.md`:
 ```markdown
 ## Git Identity Setup
 
-This project uses [GCM](https://github.com/sijunda/github-config-manager)
+This project uses [GCM](https://github.com/sijunda/git-config-manager)
 for Git identity management.
 
 ### First-Time Setup
 
-1. Install GCM: `go install github.com/sijunda/github-config-manager/cmd/gcm@latest`
+1. Install GCM: `go install github.com/sijunda/git-config-manager/cmd/gcm@latest`
 2. Import the team template: `gcm template import company-standard.yaml`
 3. Create your profile: `gcm profile create work -i`
 4. Set up shell integration: `gcm init && exec $SHELL`
@@ -101,7 +101,7 @@ jobs:
           go-version: '1.26'
 
       - name: Install GCM
-        run: go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+        run: go install github.com/sijunda/git-config-manager/cmd/gcm@latest
 
       - name: Configure Git Identity
         run: |
@@ -127,7 +127,7 @@ Follow these steps when joining a project that uses GCM:
 
 - [ ] **Install GCM**
   ```bash
-  go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+  go install github.com/sijunda/git-config-manager/cmd/gcm@latest
   ```
 
 - [ ] **Verify installation**
@@ -314,11 +314,11 @@ Subject: Git Identity Management with GCM
 
 Team,
 
-We're adopting GCM (GitHub Config Manager) for Git identity management.
+We're adopting GCM (Git Config Manager) for Git identity management.
 This ensures everyone commits with the correct email and SSH key.
 
 Setup takes ~5 minutes:
-1. Install: go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+1. Install: go install github.com/sijunda/git-config-manager/cmd/gcm@latest
 2. Create profile: gcm profile create work --interactive
 3. Shell integration: gcm init && exec $SHELL
 4. Pin projects: echo "work" > .gcm-profile

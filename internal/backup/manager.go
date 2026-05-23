@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github-config-manager/internal/config"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/config"
+	"git-config-manager/pkg/logger"
 )
 
 // Test hooks for unreachable OS/IO error paths.

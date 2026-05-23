@@ -2,18 +2,18 @@
 package container
 
 import (
-	"github-config-manager/internal/audit"
-	"github-config-manager/internal/backup"
-	"github-config-manager/internal/config"
-	"github-config-manager/internal/github"
-	"github-config-manager/internal/gpg"
-	"github-config-manager/internal/profile"
-	cryptoSvc "github-config-manager/internal/service/crypto"
-	fileSvc "github-config-manager/internal/service/file"
-	"github-config-manager/internal/shell"
-	"github-config-manager/internal/ssh"
-	"github-config-manager/internal/template"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/audit"
+	"git-config-manager/internal/backup"
+	"git-config-manager/internal/config"
+	"git-config-manager/internal/github"
+	"git-config-manager/internal/gpg"
+	"git-config-manager/internal/profile"
+	cryptoSvc "git-config-manager/internal/service/crypto"
+	fileSvc "git-config-manager/internal/service/file"
+	"git-config-manager/internal/shell"
+	"git-config-manager/internal/ssh"
+	"git-config-manager/internal/template"
+	"git-config-manager/pkg/logger"
 )
 
 // Container holds all application dependencies.

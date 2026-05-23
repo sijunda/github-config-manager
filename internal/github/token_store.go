@@ -30,16 +30,16 @@ import (
 	"strings"
 	"sync"
 
-	"github-config-manager/internal/config"
-	cryptoSvc "github-config-manager/internal/service/crypto"
-	"github-config-manager/pkg/logger"
+	"git-config-manager/internal/config"
+	cryptoSvc "git-config-manager/internal/service/crypto"
+	"git-config-manager/pkg/logger"
 
 	"github.com/zalando/go-keyring"
 )
 
 const (
 	// keychainService is the service label stored in the OS keychain.
-	keychainService = "github-config-manager"
+	keychainService = "git-config-manager"
 
 	// saltLen must match crypto.Service.GenerateSalt output (16 bytes).
 	tokenSaltLen = 16

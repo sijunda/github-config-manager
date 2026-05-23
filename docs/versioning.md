@@ -180,17 +180,17 @@ In CI pipelines, pin to a specific version:
 
 ```bash
 # Pin to exact version
-go install github.com/sijunda/github-config-manager/cmd/gcm@v1.2.3
+go install github.com/sijunda/git-config-manager/cmd/gcm@v1.2.3
 
 # Pin to latest patch of a minor version
-go install github.com/sijunda/github-config-manager/cmd/gcm@v1.2
+go install github.com/sijunda/git-config-manager/cmd/gcm@v1.2
 ```
 
 In Dockerfiles:
 
 ```dockerfile
 ARG GCM_VERSION=v1.2.3
-RUN go install github.com/sijunda/github-config-manager/cmd/gcm@${GCM_VERSION}
+RUN go install github.com/sijunda/git-config-manager/cmd/gcm@${GCM_VERSION}
 ```
 
 ---
@@ -203,7 +203,7 @@ gcm version
 
 # Check if update is available (compare with latest release)
 gcm version
-# Then check: https://github.com/sijunda/github-config-manager/releases
+# Then check: https://github.com/sijunda/git-config-manager/releases
 ```
 
 ---

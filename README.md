@@ -1,4 +1,4 @@
-# GitHub Config Manager (GCM)
+# Git Config Manager (GCM)
 
 <p align="center">
   <strong>Manage your Git identities with ease</strong>
@@ -15,7 +15,7 @@
 
 ---
 
-**GCM** is a CLI tool for managing multiple Git identities, SSH keys, GPG keys, and GitHub accounts. Switch between work, personal, and client profiles instantly.
+**GCM** is a CLI tool for managing multiple Git identities, SSH keys, GPG keys, and GitHub/GitLab accounts. Switch between work, personal, and client profiles instantly.
 
 ## Features
 
@@ -35,8 +35,8 @@
 
 ### From Source (recommended today)
 ```bash
-git clone https://github.com/sijunda/github-config-manager.git
-cd github-config-manager
+git clone https://github.com/sijunda/git-config-manager.git
+cd git-config-manager
 make build          # produces ./bin/gcm
 make install        # installs to $(go env GOPATH)/bin/gcm (no sudo needed)
 # or: make install-system   # installs to /usr/local/bin/gcm (needs sudo)
@@ -46,7 +46,7 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH` — typically `~/go/bin`.
 
 ### Via `go install` (once published)
 ```bash
-go install github.com/sijunda/github-config-manager/cmd/gcm@latest
+go install github.com/sijunda/git-config-manager/cmd/gcm@latest
 ```
 
 > **Note:** Requires the module to be published on GitHub. Until then, use "From Source" above.

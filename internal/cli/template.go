@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github-config-manager/internal/profile"
-	"github-config-manager/internal/template"
-	"github-config-manager/pkg/ui"
+	"git-config-manager/internal/profile"
+	"git-config-manager/internal/template"
+	"git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

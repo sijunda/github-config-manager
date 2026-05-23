@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	fileSvc "github-config-manager/internal/service/file"
+	fileSvc "git-config-manager/internal/service/file"
 )
 
 // ValidateProfile validates a profile configuration.

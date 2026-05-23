@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github-config-manager/pkg/ui"
-	"github-config-manager/pkg/version"
+	"git-config-manager/pkg/ui"
+	"git-config-manager/pkg/version"
 
 	"github.com/spf13/cobra"
 )
@@ -21,7 +21,7 @@ func newVersionCmd() *cobra.Command {
 				return nil
 			}
 
-			ui.Header("GitHub Config Manager (GCM)")
+			ui.Header("Git Config Manager (GCM)")
 			ui.Blank()
 			ui.Detail("Version", info.Version)
 			ui.Detail("Commit", info.Commit)
