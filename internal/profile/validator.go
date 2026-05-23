@@ -5,6 +5,7 @@ import (
 	"net/mail"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	fileSvc "git-config-manager/internal/service/file"
@@ -53,6 +54,70 @@ func validateGitConfig(g *GitConfig) error {
 	}
 	if !isValidEmail(g.User.Email) {
 		return ErrGitUserEmailInvalid()
+	}
+
+	// Validate Custom keys to prevent git config keys that trigger command
+	// execution (e.g., core.sshCommand, core.hooksPath). This is critical
+	// for the profile import path where YAML may come from untrusted sources.
+	if err := validateCustomKeys(g.Custom); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// dangerousGitConfigKeys lists git config keys (lowercased) that trigger shell
+// command execution or point to executable paths. Setting these through a
+// profile import could allow arbitrary code execution.
+var dangerousGitConfigKeys = map[string]bool{
+	"core.sshcommand":            true,
+	"core.hookspath":             true,
+	"core.gitproxy":              true,
+	"core.askpass":               true,
+	"core.pager":                 true,
+	"credential.helper":          true,
+	"diff.external":              true,
+	"filter.clean":               true,
+	"filter.smudge":              true,
+	"filter.process":             true,
+	"merge.driver":               true,
+	"merge.renormalize":          true,
+	"protocol.allow":             true,
+	"protocol.ext.allow":         true,
+	"receive.fsck.skiplist":      true,
+	"uploadpack.packobjectshook": true,
+}
+
+// dangerousGitConfigPrefixes lists prefixes of git config keys that trigger
+// command execution when combined with arbitrary suffixes.
+var dangerousGitConfigPrefixes = []string{
+	"remote.",     // remote.*.proxy, remote.*.uploadpack, etc.
+	"credential.", // credential.*.helper
+	"filter.",     // filter.*.clean, filter.*.smudge
+	"diff.",       // diff.*.command, diff.*.textconv
+	"merge.",      // merge.*.driver
+	"sendemail.",  // sendemail.smtppass, etc.
+}
+
+func validateCustomKeys(custom map[string]string) error {
+	for key := range custom {
+		lowerKey := strings.ToLower(key)
+		if dangerousGitConfigKeys[lowerKey] {
+			return &ProfileError{
+				Code:       ErrCodeInvalid,
+				Message:    fmt.Sprintf("custom git config key %q is not allowed (triggers command execution)", key),
+				Suggestion: "Remove this key from the profile's custom config section",
+			}
+		}
+		for _, prefix := range dangerousGitConfigPrefixes {
+			if strings.HasPrefix(lowerKey, prefix) {
+				return &ProfileError{
+					Code:       ErrCodeInvalid,
+					Message:    fmt.Sprintf("custom git config key %q is not allowed (potentially dangerous prefix %q)", key, prefix),
+					Suggestion: "Use dedicated profile fields (SSH, GPG) instead of raw git config keys",
+				}
+			}
+		}
 	}
 	return nil
 }

@@ -516,3 +516,72 @@ func TestIsValidEmail_TooLong(t *testing.T) {
 		t.Error("expected false for email > 254 chars")
 	}
 }
+
+func TestValidateCustomKeys_Dangerous(t *testing.T) {
+	dangerousKeys := []string{
+		"core.sshCommand",
+		"core.hooksPath",
+		"core.gitProxy",
+		"core.askPass",
+		"core.pager",
+		"credential.helper",
+		"diff.external",
+		"filter.clean",
+		"filter.smudge",
+		"remote.origin.proxy",
+		"credential.https://github.com.helper",
+		"filter.lfs.clean",
+		"diff.my-tool.command",
+		"merge.custom.driver",
+	}
+
+	for _, key := range dangerousKeys {
+		p := &Profile{
+			Name: "test",
+			Git: GitConfig{
+				User:   GitUser{Name: "Test", Email: "t@e.com"},
+				Custom: map[string]string{key: "malicious-value"},
+			},
+		}
+		if err := ValidateProfile(p); err == nil {
+			t.Errorf("expected error for dangerous custom key %q, got nil", key)
+		}
+	}
+}
+
+func TestValidateCustomKeys_Safe(t *testing.T) {
+	safeKeys := []string{
+		"user.signingkey",
+		"commit.gpgsign",
+		"pull.rebase",
+		"push.default",
+		"init.defaultBranch",
+		"color.ui",
+		"core.editor",
+	}
+
+	for _, key := range safeKeys {
+		p := &Profile{
+			Name: "test",
+			Git: GitConfig{
+				User:   GitUser{Name: "Test", Email: "t@e.com"},
+				Custom: map[string]string{key: "some-value"},
+			},
+		}
+		if err := ValidateProfile(p); err != nil {
+			t.Errorf("unexpected error for safe custom key %q: %v", key, err)
+		}
+	}
+}
+
+func TestValidateCustomKeys_NilMap(t *testing.T) {
+	p := &Profile{
+		Name: "test",
+		Git: GitConfig{
+			User: GitUser{Name: "Test", Email: "t@e.com"},
+		},
+	}
+	if err := ValidateProfile(p); err != nil {
+		t.Errorf("unexpected error for nil custom map: %v", err)
+	}
+}
