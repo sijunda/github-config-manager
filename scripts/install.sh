@@ -309,40 +309,49 @@ verify_binary() {
     return 0
 }
 
-# Animated loading for download process
-show_download_progress() {
-    [[ "$QUIET_MODE" == "true" ]] && return
-    local item="$1"
-    local delay=0.1
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local temp
+# Background spinner PID
+_SPINNER_PID=""
 
-    echo -n "   ${DIM}Downloading $item... ${NC}"
-    for i in {1..15}; do
-        temp=${spinstr#?}
-        printf "\r   ${DIM}Downloading $item... ${CYAN}%c${NC} " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-    done
-    printf "\r   ${GREEN}${CHECKMARK}${NC} Downloaded $item successfully.      \n"
+# Start a background spinner that runs during actual work
+start_spinner() {
+    [[ "$QUIET_MODE" == "true" ]] && return
+    local msg="$1"
+    local color="${2:-$CYAN}"
+    (
+        trap 'exit 0' TERM
+        local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        while true; do
+            local temp=${spinstr#?}
+            printf "\r   ${DIM}%s... ${color}%c${NC} " "$msg" "${spinstr:0:1}"
+            spinstr=$temp${spinstr%"$temp"}
+            sleep 0.1
+        done
+    ) &
+    _SPINNER_PID=$!
 }
 
-# Animated loading for installation process
-show_install_progress() {
+# Stop the spinner with success message
+stop_spinner() {
     [[ "$QUIET_MODE" == "true" ]] && return
-    local item="$1"
-    local delay=0.1
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    local temp
+    local msg="$1"
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null || true
+        _SPINNER_PID=""
+    fi
+    printf "\r   ${GREEN}${CHECKMARK}${NC} %s successfully.      \n" "$msg"
+}
 
-    echo -n "   ${DIM}Installing $item... ${NC}"
-    for i in {1..10}; do
-        temp=${spinstr#?}
-        printf "\r   ${DIM}Installing $item... ${PURPLE}%c${NC} " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-    done
-    printf "\r   ${GREEN}${CHECKMARK}${NC} Installed $item successfully.      \n"
+# Stop the spinner with failure
+stop_spinner_fail() {
+    [[ "$QUIET_MODE" == "true" ]] && return
+    local msg="$1"
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null || true
+        _SPINNER_PID=""
+    fi
+    printf "\r   ${RED}${CROSSMARK}${NC} %s failed.      \n" "$msg"
 }
 
 # Download the binary
@@ -372,17 +381,27 @@ download_binary() {
     # Create install directory
     mkdir -p "$install_dir"
 
-    # Download binary
-    [[ "$QUIET_MODE" == "false" ]] && show_download_progress "gcm binary"
+    # Start spinner and download binary (spinner runs DURING download)
+    start_spinner "Downloading gcm binary" "$CYAN"
 
+    local download_ok=true
     if command -v curl >/dev/null 2>&1; then
-        curl -sSL -o "${install_dir}/${binary_name}" "$download_url"
+        curl -sSL -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${install_dir}/${binary_name}" "$download_url"
+        wget -qO "${install_dir}/${binary_name}" "$download_url" || download_ok=false
     else
+        stop_spinner_fail "Download"
         print_error "Either curl or wget is required to download gcm"
         exit 1
     fi
+
+    if [[ "$download_ok" == "false" ]]; then
+        stop_spinner_fail "Download gcm binary"
+        print_error "Failed to download gcm binary from $download_url"
+        exit 1
+    fi
+
+    stop_spinner "Downloaded gcm binary"
 
     # Check if download was successful
     if [[ ! -f "${install_dir}/${binary_name}" ]]; then
@@ -415,16 +434,18 @@ add_to_path() {
 
     print_step "Configuring shell environment..."
 
-    [[ "$QUIET_MODE" == "false" ]] && show_install_progress "shell configuration"
+    # Run `gcm init` with spinner running during actual work
+    start_spinner "Installing shell configuration" "$PURPLE"
 
-    # Run `gcm init` to configure shell integration
     local init_output
     if init_output=$("$gcm_binary" init 2>&1); then
+        stop_spinner "Installed shell configuration"
         print_success "Shell configuration completed successfully"
         if [[ -n "$init_output" ]]; then
             echo "$init_output"
         fi
     else
+        stop_spinner_fail "Shell configuration"
         # gcm init may not exist yet or may need the binary in PATH first
         # Fall back to manual PATH setup
         print_warning "gcm init not available yet, configuring PATH manually..."
@@ -480,7 +501,7 @@ show_system_info() {
     local os=$(echo "$platform" | cut -d'/' -f1)
     local arch=$(echo "$platform" | cut -d'/' -f2)
 
-    local os_capitalized=$(echo "$os" | sed 's/./\U&/')
+    local os_capitalized=$(echo "$os" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
 
     echo -e "${GREEN} ${CHECKMARK}${NC} Operating System: ${BOLD}${os_capitalized}${NC}"
     echo -e "${GREEN} ${CHECKMARK}${NC} Architecture: ${BOLD}${arch}${NC}"
@@ -668,8 +689,15 @@ main() {
     fi
 }
 
-# Trap to ensure clean exit
-trap 'echo -e "\n${RED}Installation interrupted. Partial installation may have occurred.${NC}"; exit 1' INT TERM
+# Trap to ensure clean exit and kill spinner
+trap '
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null || true
+    fi
+    echo -e "\n${RED}Installation interrupted. Partial installation may have occurred.${NC}"
+    exit 1
+' INT TERM
 
 # Run main function
 main "$@"

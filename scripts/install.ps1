@@ -174,36 +174,38 @@ function Test-Binary {
     }
 }
 
-# Animated loading for download process
-function Show-DownloadProgress {
-    param([string]$Item)
-    if ($Quiet) { return }
+# Animated spinner that shows during actual work
+function Show-Spinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Action
+    )
+    if ($Quiet) {
+        & $Action
+        return
+    }
 
     $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    Write-Host -NoNewline "   $($Colors.Dim)Downloading $Item... $($Colors.Reset)"
+    $job = Start-Job -ScriptBlock $Action
+    $i = 0
 
-    for ($i = 0; $i -lt 15; $i++) {
+    while ($job.State -eq 'Running') {
         $spinChar = $spinChars[$i % $spinChars.Length]
-        Write-Host -NoNewline "`r   $($Colors.Dim)Downloading $Item... $($Colors.Cyan)$spinChar$($Colors.Reset) "
+        Write-Host -NoNewline "`r   $($Colors.Dim)$Message... $($Colors.Cyan)$spinChar$($Colors.Reset) "
         Start-Sleep -Milliseconds 100
+        $i++
     }
-    Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded $Item successfully.      "
-}
 
-# Animated loading for installation process
-function Show-InstallProgress {
-    param([string]$Item)
-    if ($Quiet) { return }
+    $result = Receive-Job -Job $job
+    Remove-Job -Job $job -Force
 
-    $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    Write-Host -NoNewline "   $($Colors.Dim)Installing $Item... $($Colors.Reset)"
-
-    for ($i = 0; $i -lt 10; $i++) {
-        $spinChar = $spinChars[$i % $spinChars.Length]
-        Write-Host -NoNewline "`r   $($Colors.Dim)Installing $Item... $($Colors.Purple)$spinChar$($Colors.Reset) "
-        Start-Sleep -Milliseconds 100
+    if ($job.State -eq 'Failed') {
+        Write-Host "`r   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) $Message failed.      "
+        return $null
     }
-    Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Installed $Item successfully.      "
+
+    Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) $Message successfully.      "
+    return $result
 }
 
 # Download the binary
@@ -230,19 +232,42 @@ function Download-Binary {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
 
-    # Show download progress animation
+    # Download binary with spinner running DURING the actual download
     if (-not $Quiet) {
-        Show-DownloadProgress "gcm binary"
-    }
+        $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        $downloadJob = Start-Job -ScriptBlock {
+            param($url, $outPath)
+            Invoke-WebRequest -Uri $url -OutFile $outPath -TimeoutSec 120
+        } -ArgumentList $downloadUrl, $binaryPath
 
-    # Download binary
-    try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -TimeoutSec 60
-    }
-    catch {
-        Print-Error "Failed to download gcm binary"
-        Print-Info "Error: $($_.Exception.Message)"
-        exit 1
+        $i = 0
+        while ($downloadJob.State -eq 'Running') {
+            $spinChar = $spinChars[$i % $spinChars.Length]
+            Write-Host -NoNewline "`r   $($Colors.Dim)Downloading gcm binary... $($Colors.Cyan)$spinChar$($Colors.Reset) "
+            Start-Sleep -Milliseconds 100
+            $i++
+        }
+
+        $jobResult = Receive-Job -Job $downloadJob -ErrorAction SilentlyContinue
+        $jobState = $downloadJob.State
+        Remove-Job -Job $downloadJob -Force
+
+        if ($jobState -eq 'Failed' -or -not (Test-Path $binaryPath)) {
+            Write-Host "`r   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) Download gcm binary failed.      "
+            Print-Error "Failed to download gcm binary"
+            exit 1
+        }
+        Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded gcm binary successfully.      "
+    } else {
+        # Quiet mode - just download
+        try {
+            Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -TimeoutSec 120
+        }
+        catch {
+            Print-Error "Failed to download gcm binary"
+            Print-Info "Error: $($_.Exception.Message)"
+            exit 1
+        }
     }
 
     # Check if download was successful
@@ -275,10 +300,6 @@ function Add-ToPath {
 
     Print-Step "Configuring Windows environment..."
 
-    if (-not $Quiet) {
-        Show-InstallProgress "environment configuration"
-    }
-
     # Get current user PATH
     $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
 
@@ -294,19 +315,33 @@ function Add-ToPath {
     # Also update current session PATH
     $env:PATH = "$InstallDir;$env:PATH"
 
-    # Run gcm init for shell integration
+    # Run gcm init with spinner running DURING the work
+    if (-not $Quiet) {
+        $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        Write-Host -NoNewline "   $($Colors.Dim)Configuring shell integration... $($Colors.Purple)$($spinChars[0])$($Colors.Reset) "
+    }
+
     try {
         $initOutput = & $gcmBinary init 2>&1
         if ($LASTEXITCODE -eq 0) {
+            if (-not $Quiet) {
+                Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Configured shell integration successfully.      "
+            }
             Print-Success "Shell integration configured successfully"
             if ($initOutput -and -not $Quiet) {
                 Write-Host $initOutput
             }
         } else {
+            if (-not $Quiet) {
+                Write-Host "`r   $($Colors.Yellow)$($Icons.Warning)$($Colors.Reset) Shell integration had issues.      "
+            }
             Print-Warning "Shell integration had issues. You may need to run 'gcm init' manually."
         }
     }
     catch {
+        if (-not $Quiet) {
+            Write-Host "`r   $($Colors.Yellow)$($Icons.Warning)$($Colors.Reset) Shell integration skipped.      "
+        }
         Print-Warning "Could not run 'gcm init'. Please run it manually after installation."
     }
 }
