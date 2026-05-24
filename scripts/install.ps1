@@ -174,39 +174,8 @@ function Test-Binary {
     }
 }
 
-# Animated spinner that shows during actual work
-function Show-Spinner {
-    param(
-        [string]$Message,
-        [scriptblock]$Action
-    )
-    if ($Quiet) {
-        & $Action
-        return
-    }
-
-    $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $job = Start-Job -ScriptBlock $Action
-    $i = 0
-
-    while ($job.State -eq 'Running') {
-        $spinChar = $spinChars[$i % $spinChars.Length]
-        Write-Host -NoNewline "`r   $($Colors.Dim)$Message... $($Colors.Cyan)$spinChar$($Colors.Reset) "
-        Start-Sleep -Milliseconds 100
-        $i++
-    }
-
-    $result = Receive-Job -Job $job
-    Remove-Job -Job $job -Force
-
-    if ($job.State -eq 'Failed') {
-        Write-Host "`r   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) $Message failed.      "
-        return $null
-    }
-
-    Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) $Message successfully.      "
-    return $result
-}
+# ASCII spinner characters (compatible with all terminals)
+$SpinChars = @('|', '/', '-', '\\')
 
 # Download the binary
 function Download-Binary {
@@ -232,42 +201,29 @@ function Download-Binary {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
 
-    # Download binary with spinner running DURING the actual download
+    # Download binary with real progress indicator
     if (-not $Quiet) {
-        $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-        $downloadJob = Start-Job -ScriptBlock {
-            param($url, $outPath)
-            Invoke-WebRequest -Uri $url -OutFile $outPath -TimeoutSec 120
-        } -ArgumentList $downloadUrl, $binaryPath
-
-        $i = 0
-        while ($downloadJob.State -eq 'Running') {
-            $spinChar = $spinChars[$i % $spinChars.Length]
-            Write-Host -NoNewline "`r   $($Colors.Dim)Downloading gcm binary... $($Colors.Cyan)$spinChar$($Colors.Reset) "
-            Start-Sleep -Milliseconds 100
-            $i++
-        }
-
-        $jobResult = Receive-Job -Job $downloadJob -ErrorAction SilentlyContinue
-        $jobState = $downloadJob.State
-        Remove-Job -Job $downloadJob -Force
-
-        if ($jobState -eq 'Failed' -or -not (Test-Path $binaryPath)) {
-            Write-Host "`r   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) Download gcm binary failed.      "
-            Print-Error "Failed to download gcm binary"
-            exit 1
-        }
-        Write-Host "`r   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded gcm binary successfully.      "
+        Write-Host "   $($Colors.Dim)Downloading...$($Colors.Reset)"
+        # Use default ProgressPreference which shows a progress bar in PowerShell
+        $ProgressPreference = 'Continue'
     } else {
-        # Quiet mode - just download
-        try {
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -TimeoutSec 120
+        $ProgressPreference = 'SilentlyContinue'
+    }
+
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -TimeoutSec 120
+    }
+    catch {
+        if (-not $Quiet) {
+            Write-Host "   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) Download failed."
         }
-        catch {
-            Print-Error "Failed to download gcm binary"
-            Print-Info "Error: $($_.Exception.Message)"
-            exit 1
-        }
+        Print-Error "Failed to download gcm binary"
+        Print-Info "Error: $($_.Exception.Message)"
+        exit 1
+    }
+
+    if (-not $Quiet) {
+        Write-Host "   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded gcm binary successfully."
     }
 
     # Check if download was successful
@@ -315,10 +271,9 @@ function Add-ToPath {
     # Also update current session PATH
     $env:PATH = "$InstallDir;$env:PATH"
 
-    # Run gcm init with spinner running DURING the work
+    # Run gcm init
     if (-not $Quiet) {
-        $spinChars = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-        Write-Host -NoNewline "   $($Colors.Dim)Configuring shell integration... $($Colors.Purple)$($spinChars[0])$($Colors.Reset) "
+        Write-Host -NoNewline "   $($Colors.Dim)Configuring shell integration... $($Colors.Purple)$($SpinChars[0])$($Colors.Reset) "
     }
 
     try {

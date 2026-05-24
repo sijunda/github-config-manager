@@ -287,7 +287,7 @@ REM Download using PowerShell (with progress indicator)
 if %QUIET_MODE%==0 (
     echo %DIM%   Downloading gcm binary...%RESET%
 )
-powershell -NoProfile -Command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%BINARY_PATH%' -TimeoutSec 120" 2>nul
+powershell -NoProfile -Command "Invoke-WebRequest -Uri '%DOWNLOAD_URL%' -OutFile '%BINARY_PATH%' -TimeoutSec 120" 2>nul
 
 if not exist "%BINARY_PATH%" (
     call :print_error "Failed to download gcm binary"

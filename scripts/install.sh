@@ -313,17 +313,18 @@ verify_binary() {
 _SPINNER_PID=""
 
 # Start a background spinner that runs during actual work
+# Uses ASCII-safe characters that work in all terminals
 start_spinner() {
     [[ "$QUIET_MODE" == "true" ]] && return
     local msg="$1"
     local color="${2:-$CYAN}"
     (
         trap 'exit 0' TERM
-        local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+        local chars='|/-\\'
+        local i=0
         while true; do
-            local temp=${spinstr#?}
-            printf "\r   ${DIM}%s... ${color}%c${NC} " "$msg" "${spinstr:0:1}"
-            spinstr=$temp${spinstr%"$temp"}
+            printf "\r   ${DIM}%s... ${color}%c${NC} " "$msg" "${chars:$((i % 4)):1}"
+            i=$((i + 1))
             sleep 0.1
         done
     ) &
@@ -381,27 +382,33 @@ download_binary() {
     # Create install directory
     mkdir -p "$install_dir"
 
-    # Start spinner and download binary (spinner runs DURING download)
-    start_spinner "Downloading gcm binary" "$CYAN"
-
+    # Download binary with REAL progress bar (shows %, speed, ETA)
+    echo -e "   ${DIM}Downloading...${NC}"
     local download_ok=true
     if command -v curl >/dev/null 2>&1; then
-        curl -sSL -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
+        if [[ "$QUIET_MODE" == "true" ]]; then
+            curl -sSL -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
+        else
+            curl -L --progress-bar -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "${install_dir}/${binary_name}" "$download_url" || download_ok=false
+        if [[ "$QUIET_MODE" == "true" ]]; then
+            wget -qO "${install_dir}/${binary_name}" "$download_url" || download_ok=false
+        else
+            wget --show-progress -qO "${install_dir}/${binary_name}" "$download_url" 2>&1 || download_ok=false
+        fi
     else
-        stop_spinner_fail "Download"
         print_error "Either curl or wget is required to download gcm"
         exit 1
     fi
 
     if [[ "$download_ok" == "false" ]]; then
-        stop_spinner_fail "Download gcm binary"
+        echo -e "   ${RED}${CROSSMARK}${NC} Download failed."
         print_error "Failed to download gcm binary from $download_url"
         exit 1
     fi
 
-    stop_spinner "Downloaded gcm binary"
+    echo -e "   ${GREEN}${CHECKMARK}${NC} Downloaded gcm binary successfully."
 
     # Check if download was successful
     if [[ ! -f "${install_dir}/${binary_name}" ]]; then
