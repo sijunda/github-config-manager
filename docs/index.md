@@ -60,6 +60,7 @@ If you want to contribute to GCM or understand its internals, this section is fo
 | Onboard my team                    | [Developer Onboarding](developer-onboarding.md)          |
 | Contribute code                    | [Contributing](contributing.md)                          |
 | Understand the architecture        | [Architecture](architecture.md)                          |
+| See feature demos                  | [Demos](demos/)                                          |
 
 ---
 
