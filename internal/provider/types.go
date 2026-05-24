@@ -4,8 +4,9 @@ package provider
 import "time"
 
 const (
-	GitHubID ProviderID = "github"
-	GitLabID ProviderID = "gitlab"
+	GitHubID    ProviderID = "github"
+	GitLabID    ProviderID = "gitlab"
+	BitbucketID ProviderID = "bitbucket"
 )
 
 const (

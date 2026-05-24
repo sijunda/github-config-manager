@@ -91,6 +91,30 @@ func TestSSHKeyExists_NormalizesKeyComments(t *testing.T) {
 	}
 }
 
+func TestDeleteSSHKey(t *testing.T) {
+	deleteCalled := false
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/keys":
+			json.NewEncoder(w).Encode([]SSHKeyResponse{{ID: 7, Key: "ssh-ed25519 AAAA old-comment"}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/user/keys/7":
+			deleteCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	})
+	client.SetToken("glpat")
+
+	deleted, err := client.DeleteSSHKey(context.Background(), "ssh-ed25519 AAAA new-comment")
+	if err != nil {
+		t.Fatalf("DeleteSSHKey: %v", err)
+	}
+	if !deleted || !deleteCalled {
+		t.Fatal("expected SSH key to be deleted")
+	}
+}
+
 func TestUploadGPGKey(t *testing.T) {
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/user/gpg_keys" {
@@ -109,6 +133,30 @@ func TestUploadGPGKey(t *testing.T) {
 
 	if err := client.UploadGPGKey(context.Background(), "-----BEGIN PGP PUBLIC KEY BLOCK-----"); err != nil {
 		t.Fatalf("UploadGPGKey: %v", err)
+	}
+}
+
+func TestDeleteGPGKey(t *testing.T) {
+	deleteCalled := false
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/user/gpg_keys":
+			json.NewEncoder(w).Encode([]GPGKeyResponse{{ID: 9, KeyID: "ABC123", Fingerprint: "FINGERPRINT"}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/user/gpg_keys/9":
+			deleteCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	})
+	client.SetToken("glpat")
+
+	deleted, err := client.DeleteGPGKey(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("DeleteGPGKey: %v", err)
+	}
+	if !deleted || !deleteCalled {
+		t.Fatal("expected GPG key to be deleted")
 	}
 }
 

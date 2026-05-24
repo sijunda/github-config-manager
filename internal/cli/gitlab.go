@@ -322,7 +322,7 @@ func newGitLabStatusCmd() *cobra.Command {
 
 func setupUploadKeysForGitLab(ctx context.Context, profileName string) {
 	def, err := gitLabProviderDefinition()
-	if err != nil || !def.UploadKeys {
+	if err != nil {
 		return
 	}
 
@@ -330,50 +330,5 @@ func setupUploadKeysForGitLab(ctx context.Context, profileName string) {
 	if err != nil || profileConfig == nil {
 		return
 	}
-	token, err := loadProviderToken(profileName, def, profileConfig)
-	if err != nil || token.AccessToken == "" {
-		return
-	}
-	ctr.GitLabClient.SetTokenSet(token)
-
-	if profileConfig.SSH != nil && profileConfig.SSH.KeyPath != "" {
-		pubKey, pubErr := ctr.SSHManager.GetPublicKey(profileConfig.SSH.KeyPath)
-		if pubErr == nil && pubKey != "" {
-			exists, checkErr := ctr.GitLabClient.SSHKeyExists(ctx, pubKey)
-			if checkErr == nil && !exists {
-				ui.Blank()
-				upload, askErr := ui.AskConfirm("Upload SSH key to GitLab?", true)
-				if askErr == nil && upload {
-					title := fmt.Sprintf("gcm-%s", profileName)
-					if uploadErr := ctr.GitLabClient.UploadSSHKey(ctx, title, pubKey); uploadErr != nil {
-						ui.Warning("Could not upload SSH key to GitLab: %v", uploadErr)
-					} else {
-						ui.Success("SSH key uploaded to GitLab")
-					}
-				}
-			} else if checkErr == nil && exists {
-				ui.Blank()
-				ui.Success("SSH key already on GitLab")
-			}
-		}
-	}
-
-	if profileConfig.GPG != nil && profileConfig.GPG.KeyID != "" {
-		exists, checkErr := ctr.GitLabClient.GPGKeyExists(ctx, profileConfig.GPG.KeyID)
-		if checkErr == nil && !exists {
-			upload, askErr := ui.AskConfirm("Upload GPG key to GitLab?", true)
-			if askErr == nil && upload {
-				pubKey, gpgErr := ctr.GPGManager.GetPublicKey(profileConfig.GPG.KeyID)
-				if gpgErr != nil {
-					ui.Warning("Could not read GPG public key: %v", gpgErr)
-				} else if uploadErr := ctr.GitLabClient.UploadGPGKey(ctx, pubKey); uploadErr != nil {
-					ui.Warning("Could not upload GPG key to GitLab: %v", uploadErr)
-				} else {
-					ui.Success("GPG key uploaded to GitLab")
-				}
-			}
-		} else if checkErr == nil && exists {
-			ui.Success("GPG key already on GitLab")
-		}
-	}
+	setupUploadKeysForProvider(ctx, profileName, profileConfig, def)
 }

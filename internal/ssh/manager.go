@@ -278,6 +278,19 @@ func (m *Manager) List() ([]KeyInfo, error) {
 
 // TestConnection tests SSH connectivity to GitHub.
 func (m *Manager) TestConnection(keyPath string) (string, error) {
+	return m.TestConnectionToHost(keyPath, "github.com", 0)
+}
+
+// TestConnectionToHost tests SSH connectivity to a provider host as git@host.
+func (m *Manager) TestConnectionToHost(keyPath, host string, port int) (string, error) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		host = "github.com"
+	}
+	if strings.ContainsAny(host, " \t\r\n\x00") {
+		return "", fmt.Errorf("invalid SSH host %q", host)
+	}
+
 	expanded := expandPath(keyPath)
 
 	// Best-effort: load key into agent first (short timeout).
@@ -289,20 +302,26 @@ func (m *Manager) TestConnection(keyPath string) (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, m.cfg.Advanced.SSHCommand,
+	args := []string{
 		"-T", "-i", expanded,
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=5",
 		"-o", "IdentitiesOnly=yes",
-		"git@github.com",
-	)
+	}
+	if port > 0 {
+		args = append(args, "-p", fmt.Sprintf("%d", port))
+	}
+	args = append(args, "git@"+host)
+	cmd := exec.CommandContext(ctx, m.cfg.Advanced.SSHCommand, args...)
 
 	out, err := cmd.CombinedOutput()
 	output := strings.TrimSpace(string(out))
 
-	// GitHub returns exit code 1 even on success with a greeting
-	if strings.Contains(output, "successfully authenticated") ||
+	// Providers often return exit code 1 even on successful SSH auth greetings.
+	lowerOutput := strings.ToLower(output)
+	if strings.Contains(lowerOutput, "successfully authenticated") ||
+		strings.Contains(lowerOutput, "welcome to gitlab") ||
 		strings.Contains(output, "Hi ") {
 		return output, nil
 	}

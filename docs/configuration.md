@@ -113,7 +113,7 @@ backup:
 
 # Security settings.
 security:
-  encrypt_tokens: true           # Encrypt GitHub tokens at rest
+  encrypt_tokens: true           # Encrypt provider tokens at rest
   use_keychain: true             # Use OS keychain when available
   master_password: false         # Require master password
   audit_log: true                # Enable audit logging

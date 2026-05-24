@@ -39,6 +39,7 @@ and GitHub/GitLab accounts from a single, intuitive CLI tool.
   gcm profile create <name> -i  Create a new profile interactively
   gcm ssh generate <profile>    Generate SSH key for a profile
   gcm github login <profile>    Authenticate with GitHub
+	gcm gitlab login <profile>    Authenticate with GitLab
 
 Run "gcm <command> --help" for details on any command.`,
 		SilenceUsage:  true,
@@ -61,7 +62,7 @@ Run "gcm <command> --help" for details on any command.`,
 	rootCmd.AddCommand(newSSHCmd())
 	rootCmd.AddCommand(newGPGCmd())
 
-	// ─── GitHub ───
+	// ─── Providers ───
 	rootCmd.AddCommand(newGitHubCmd())
 	rootCmd.AddCommand(newGitLabCmd())
 

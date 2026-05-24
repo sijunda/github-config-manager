@@ -43,7 +43,7 @@ gcm quickstart   # alias
 2. Creating your first profile (name, email)
 3. SSH key generation
 4. GPG signing (optional)
-5. GitHub authentication
+5. Provider authentication (GitHub/GitLab)
 6. Activating your profile
 
 Perfect for first-time users. Run this once and you're fully set up.
@@ -119,7 +119,7 @@ gcm profile create work --name "Jane" --email "jane@acme.example" --ssh-key ~/.s
 1. **Basic info** — name, email, editor
 2. **SSH key** — generate new key (Ed25519/RSA/ECDSA) or skip
 3. **GPG signing** — generate new GPG key or skip
-4. **GitHub** — set username or skip
+4. **Provider accounts** — set GitHub/GitLab usernames or skip
 
 **Validation:**
 - `--name` and `--email` are required unless `--interactive` is set
@@ -146,7 +146,7 @@ Display detailed information about a profile.
 gcm profile show work
 ```
 
-**Shows:** Git user/email/editor, SSH key path/type/fingerprint, GPG key ID, GitHub username, metadata (created, usage count).
+**Shows:** Git user/email/editor, SSH key path/type/fingerprint, GPG key ID, provider usernames, metadata (created, usage count).
 
 ### `gcm profile edit <name>`
 
@@ -322,7 +322,7 @@ gcm ssh generate work -p "my-passphrase"       # with passphrase
 3. If a passphrase is given, encrypts the private key at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR)
 4. Updates the profile's SSH configuration automatically
 5. Prints the public key for easy copying
-6. If a GitHub token is stored for this profile, offers to upload the key to GitHub automatically
+6. If provider tokens are stored for this profile, offers to upload the key to each authenticated provider explicitly
 
 ### `gcm ssh list`
 
@@ -338,13 +338,14 @@ gcm ssh             # also runs list
 
 ### `gcm ssh test <profile>`
 
-Test the SSH connection to GitHub using the profile's key.
+Test the SSH connection to a configured provider using the profile's key.
 
 ```bash
-gcm ssh test work
+gcm ssh test work --provider github
+gcm ssh test work --provider gitlab
 ```
 
-Runs `ssh -T git@github.com` with the profile's key.
+Runs `ssh -T git@<provider-ssh-host>` with the profile's key. If `--provider` is omitted, GCM prompts you to choose one.
 
 ### `gcm ssh copy <profile>`
 
@@ -357,22 +358,25 @@ gcm ssh copy work | pbcopy    # macOS: copy to clipboard
 
 ### `gcm ssh upload <profile>`
 
-Upload the profile's SSH public key to GitHub. Checks for duplicates before uploading.
+Upload the profile's SSH public key to GitHub, GitLab, or another configured provider. Checks for duplicates before uploading.
 
 ```bash
-gcm ssh upload work
-gcm ssh upload work --force    # skip duplicate check
+gcm ssh upload work --provider github
+gcm ssh upload work --provider gitlab
+gcm ssh upload work --provider gitlab --force    # skip duplicate check
 ```
 
-| Flag      | Short | Default | Description            |
-| --------- | ----- | ------- | ---------------------- |
-| `--force` | `-f`  | `false` | Skip duplicate check   |
+| Flag         | Short | Default | Description                    |
+| ------------ | ----- | ------- | ------------------------------ |
+| `--provider` |       | `""`    | Provider to upload to          |
+| `--force`    | `-f`  | `false` | Skip duplicate check           |
 
 **What it does:**
-1. Loads the stored GitHub token for the profile
-2. Lists existing SSH keys on GitHub and compares by key material
-3. If the key already exists, reports "already uploaded" and exits
-4. Otherwise, uploads with title `gcm-<profile>-<type>`
+1. Resolves or prompts for the target provider
+2. Loads the stored provider token for the profile
+3. Lists existing SSH keys on that provider and compares by key material
+4. If the key already exists, reports "already uploaded" and exits
+5. Otherwise, uploads with title `gcm-<profile>-<provider>-ssh-<type>`
 
 ---
 
@@ -391,7 +395,7 @@ gcm gpg generate work
 The profile must already have `user.name` and `user.email` set.
 
 After generation, the profile is automatically updated with the GPG key ID and `commit.gpgsign = true`.
-If a GitHub token is stored for this profile, GCM will offer to upload the GPG public key to GitHub so commits show as "Verified".
+If provider tokens are stored for this profile, GCM will offer to upload the GPG public key to each authenticated provider explicitly so commits can show as verified there.
 
 ### `gcm gpg list`
 
@@ -437,22 +441,25 @@ Performs a test signature using the profile's GPG key ID.
 
 ### `gcm gpg upload <profile>`
 
-Upload the profile's GPG public key to GitHub for commit verification. Checks for duplicates before uploading.
+Upload the profile's GPG public key to GitHub, GitLab, or another configured provider for commit verification. Checks for duplicates before uploading.
 
 ```bash
-gcm gpg upload work
-gcm gpg upload work --force    # skip duplicate check
+gcm gpg upload work --provider github
+gcm gpg upload work --provider gitlab
+gcm gpg upload work --provider gitlab --force    # skip duplicate check
 ```
 
-| Flag      | Short | Default | Description            |
-| --------- | ----- | ------- | ---------------------- |
-| `--force` | `-f`  | `false` | Skip duplicate check   |
+| Flag         | Short | Default | Description                    |
+| ------------ | ----- | ------- | ------------------------------ |
+| `--provider` |       | `""`    | Provider to upload to          |
+| `--force`    | `-f`  | `false` | Skip duplicate check           |
 
 **What it does:**
-1. Loads the stored GitHub token for the profile
-2. Lists existing GPG keys on GitHub and compares by key ID
-3. If the key already exists, reports "already uploaded" and exits
-4. Otherwise, exports the armored public key and uploads to GitHub
+1. Resolves or prompts for the target provider
+2. Loads the stored provider token for the profile
+3. Lists existing GPG keys on that provider and compares by key ID
+4. If the key already exists, reports "already uploaded" and exits
+5. Otherwise, exports the armored public key and uploads to the provider
 
 ---
 
@@ -930,14 +937,14 @@ Activation
 
 SSH
   gcm ssh generate <name> [-t] [-b] [-c] [-p]  Generate key
-  gcm ssh upload <name> [--force]               Upload key to GitHub
+  gcm ssh upload <name> [--provider] [--force]  Upload key to provider
   gcm ssh list                                  List all keys
-  gcm ssh test <name>                           Test GitHub connection
+  gcm ssh test <name> [--provider]              Test provider connection
   gcm ssh copy <name>                           Print public key
 
 GPG
   gcm gpg generate <name>                       Generate GPG key
-  gcm gpg upload <name> [--force]               Upload key to GitHub
+  gcm gpg upload <name> [--provider] [--force]  Upload key to provider
   gcm gpg list                                  List GPG keys
   gcm gpg sign enable|disable <name>            Toggle signing
   gcm gpg test <name>                           Test signing

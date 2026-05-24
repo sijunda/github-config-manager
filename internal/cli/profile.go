@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"git-config-manager/internal/audit"
 	"git-config-manager/internal/gpg"
 	"git-config-manager/internal/profile"
+	providerpkg "git-config-manager/internal/provider"
 	"git-config-manager/internal/ssh"
 	"git-config-manager/pkg/ui"
 
@@ -208,24 +210,18 @@ func profileCreateInteractive(profileName string, fromTemplate string) error {
 		}
 	}
 
-	ui.SubHeader("Step 4/4: GitHub (Optional)")
-	githubUser, err := ui.AskString("GitHub username (leave empty to skip):", "")
-	if err != nil {
-		return err
-	}
-
-	var ghConfig *profile.GitHubConfig
-	if githubUser != "" {
-		ghConfig = &profile.GitHubConfig{Username: githubUser}
-	}
-
 	p := &profile.Profile{
 		Name: profileName,
 		Git: profile.GitConfig{
 			User: profile.GitUser{Name: name, Email: email},
 			Core: profile.GitCore{Editor: editor},
 		},
-		SSH: sshConfig, GPG: gpgConfig, GitHub: ghConfig,
+		SSH: sshConfig, GPG: gpgConfig,
+	}
+
+	ui.SubHeader("Step 4/4: Provider Accounts (Optional)")
+	if err := promptProviderAccountUsernames(p); err != nil {
+		return err
 	}
 
 	if gpgConfig != nil {
@@ -339,10 +335,7 @@ func newProfileShowCmd() *cobra.Command {
 				ui.SubHeader("GPG")
 				ui.Detail("Key ID", p.GPG.KeyID)
 			}
-			if p.GitHub != nil {
-				ui.SubHeader("GitHub")
-				ui.Detail("Username", p.GitHub.Username)
-			}
+			printProfileProviderAccounts(p)
 			ui.SubHeader("Metadata")
 			ui.Detail("Created", p.Metadata.Created.Format("2006-01-02 15:04:05"))
 			ui.Detail("Usage", fmt.Sprintf("%d", p.Metadata.UsageCount))
@@ -470,17 +463,8 @@ func profileEditInteractive(p *profile.Profile) error {
 		return err
 	}
 
-	ui.SubHeader("GitHub Configuration")
-	ghUsername := ""
-	if p.GitHub != nil {
-		ghUsername = p.GitHub.Username
-	}
-	ghPrompt := "GitHub username (leave empty to skip):"
-	if ghUsername != "" {
-		ghPrompt = fmt.Sprintf("GitHub username [%s]:", ghUsername)
-	}
-	newGHUser, err := ui.AskString(ghPrompt, ghUsername)
-	if err != nil {
+	ui.SubHeader("Provider Accounts")
+	if err := promptProviderAccountUsernames(p); err != nil {
 		return err
 	}
 
@@ -490,15 +474,6 @@ func profileEditInteractive(p *profile.Profile) error {
 	p.Git.Core.Editor = newEditor
 	p.Git.User.SigningKey = newSigningKey
 	p.Git.Commit.GPGSign = profile.BoolPtr(newGPGSign)
-
-	if newGHUser != "" {
-		if p.GitHub == nil {
-			p.GitHub = &profile.GitHubConfig{}
-		}
-		p.GitHub.Username = newGHUser
-	} else {
-		p.GitHub = nil
-	}
 
 	// Update GPG config key ID if signing key changed
 	if newSigningKey != "" {
@@ -526,9 +501,7 @@ func profileEditInteractive(p *profile.Profile) error {
 	if newGPGSign {
 		ui.Detail("GPG Signing", "enabled")
 	}
-	if newGHUser != "" {
-		ui.Detail("GitHub", newGHUser)
-	}
+	printProfileProviderAccountSummary(p)
 
 	return nil
 }
@@ -582,29 +555,49 @@ func newProfileDeleteCmd() *cobra.Command {
 				sshPubKey, _ = ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
 			}
 
-			// Clean up GitHub keys (must happen before local file deletion)
-			var sshDeletedFromGH, gpgDeletedFromGH bool
-			token, _ := ctr.GitHubClient.LoadToken(profileName)
-			if token != "" {
-				ctr.GitHubClient.SetToken(token)
-				ctx := context.Background()
+			// Clean up provider keys before deleting local key material.
+			var sshDeletedFromProviders, gpgDeletedFromProviders []string
+			ctx := context.Background()
+			for _, def := range providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper) {
+				token, tokenErr := loadProviderToken(profileName, def, p)
+				if tokenErr != nil || token.AccessToken == "" {
+					continue
+				}
+				if setErr := setProviderToken(def, token); setErr != nil {
+					continue
+				}
 
-				if sshPubKey != "" {
-					deleted, delErr := ctr.GitHubClient.DeleteSSHKey(ctx, sshPubKey)
+				if sshPubKey != "" && def.Capabilities.Has(providerpkg.CapabilitySSHKeys) {
+					deleted, delErr := deleteProviderSSHKey(ctx, def, sshPubKey)
 					if delErr != nil {
-						ui.Warning("Could not delete SSH key from GitHub: %v", delErr)
+						ui.Warning("Could not delete SSH key from %s: %v", def.DisplayName, delErr)
 					} else if deleted {
-						sshDeletedFromGH = true
+						sshDeletedFromProviders = append(sshDeletedFromProviders, def.DisplayName)
 					}
 				}
 
-				if p.GPG != nil && p.GPG.KeyID != "" {
-					deleted, delErr := ctr.GitHubClient.DeleteGPGKey(ctx, p.GPG.KeyID)
+				if p.GPG != nil && p.GPG.KeyID != "" && def.Capabilities.Has(providerpkg.CapabilityGPGKeys) {
+					deleted, delErr := deleteProviderGPGKey(ctx, def, p.GPG.KeyID)
 					if delErr != nil {
-						ui.Warning("Could not delete GPG key from GitHub: %v", delErr)
+						ui.Warning("Could not delete GPG key from %s: %v", def.DisplayName, delErr)
 					} else if deleted {
-						gpgDeletedFromGH = true
+						gpgDeletedFromProviders = append(gpgDeletedFromProviders, def.DisplayName)
 					}
+				}
+
+				if def.ID == providerpkg.GitHubID {
+					removedToken := false
+					if delErr := deleteProviderToken(profileName, def, p); delErr == nil {
+						removedToken = true
+					}
+					if delErr := ctr.GitHubClient.DeleteToken(profileName); delErr == nil {
+						removedToken = true
+					}
+					if removedToken {
+						ui.Success("%s token removed", def.DisplayName)
+					}
+				} else if delErr := deleteProviderToken(profileName, def, p); delErr == nil {
+					ui.Success("%s token removed", def.DisplayName)
 				}
 			}
 
@@ -619,9 +612,9 @@ func newProfileDeleteCmd() *cobra.Command {
 				if err := os.Remove(pubKey); err == nil {
 					removedAny = true
 				}
-				if removedAny || sshDeletedFromGH {
-					if sshDeletedFromGH {
-						ui.Success("SSH key removed (local + GitHub)")
+				if removedAny || len(sshDeletedFromProviders) > 0 {
+					if len(sshDeletedFromProviders) > 0 {
+						ui.Success("SSH key removed (local + %s)", strings.Join(sshDeletedFromProviders, ", "))
 					} else {
 						ui.Success("SSH key removed (local)")
 					}
@@ -640,18 +633,14 @@ func newProfileDeleteCmd() *cobra.Command {
 						gpgLocalDeleted = true
 					}
 				}
-				if gpgLocalDeleted || gpgDeletedFromGH {
-					if gpgDeletedFromGH {
-						ui.Success("GPG key removed (keyring + GitHub)")
+				if gpgLocalDeleted || len(gpgDeletedFromProviders) > 0 {
+					if len(gpgDeletedFromProviders) > 0 {
+						ui.Success("GPG key removed (keyring + %s)", strings.Join(gpgDeletedFromProviders, ", "))
 					} else {
 						ui.Success("GPG key removed (keyring)")
 					}
 					ui.Detail("Key ID", p.GPG.KeyID)
 				}
-			}
-
-			if delErr := ctr.GitHubClient.DeleteToken(profileName); delErr == nil {
-				ui.Success("GitHub token removed")
 			}
 
 			return nil
@@ -739,5 +728,54 @@ func diffField(label, v1, v2, n1, n2 string) {
 		ui.Print("\n%s:", label)
 		ui.Detail(n1, v1)
 		ui.Detail(n2, v2)
+	}
+}
+
+func promptProviderAccountUsernames(p *profile.Profile) error {
+	defs := providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper)
+	if len(defs) == 0 {
+		ui.Info("No providers are configured yet.")
+		return nil
+	}
+	for _, def := range defs {
+		account := providerAccountForProfile(p, def.ID)
+		prompt := fmt.Sprintf("%s username (leave empty to skip):", def.DisplayName)
+		if account.Username != "" {
+			prompt = fmt.Sprintf("%s username [%s]:", def.DisplayName, account.Username)
+		}
+		username, err := ui.AskString(prompt, account.Username)
+		if err != nil {
+			return err
+		}
+		if username == "" {
+			clearProfileProviderAccount(p, def.ID)
+			continue
+		}
+		setProfileProviderAccount(p, def.ID, username, account.AuthMethod)
+	}
+	return nil
+}
+
+func printProfileProviderAccounts(p *profile.Profile) {
+	printed := false
+	for _, def := range providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper) {
+		account := providerAccountForProfile(p, def.ID)
+		if account.Username == "" {
+			continue
+		}
+		if !printed {
+			ui.SubHeader("Provider Accounts")
+			printed = true
+		}
+		ui.Detail(def.DisplayName, account.Username)
+	}
+}
+
+func printProfileProviderAccountSummary(p *profile.Profile) {
+	for _, def := range providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper) {
+		account := providerAccountForProfile(p, def.ID)
+		if account.Username != "" {
+			ui.Detail(def.DisplayName, account.Username)
+		}
 	}
 }

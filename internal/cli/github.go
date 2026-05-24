@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"git-config-manager/internal/audit"
-	"git-config-manager/internal/profile"
 	providerpkg "git-config-manager/internal/provider"
 	"git-config-manager/pkg/ui"
 
@@ -80,7 +79,8 @@ Examples:
 			var err error
 
 			// Check if --stdin flag or pipe input
-			if isStdinPiped() {
+			stdinPiped := isStdinPiped()
+			if stdinPiped {
 				token, err = readStdinToken()
 				if err != nil {
 					return fmt.Errorf("could not read token from input\n\n  Make sure you're piping a valid token:\n  echo \"$GH_TOKEN\" | gcm github login %s", profileName)
@@ -158,18 +158,17 @@ Examples:
 			// Update profile
 			p, _ := ctr.ProfileManager.Get(profileName)
 			if p != nil {
-				if p.GitHub == nil {
-					p.GitHub = &profile.GitHubConfig{Username: user.Login}
-				} else {
-					p.GitHub.Username = user.Login
-				}
+				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodPAT)
 				_ = ctr.ProfileManager.Update(p)
 			}
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
-			// Offer to upload SSH/GPG keys if they exist
-			setupUploadKeys(cmd.Context(), profileName)
+			if !stdinPiped && p != nil {
+				if def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID); ok {
+					setupUploadKeysForProvider(cmd.Context(), profileName, p, def)
+				}
+			}
 
 			return nil
 		},
@@ -222,11 +221,7 @@ Examples:
 			if clearGitCreds && isActiveProfile(profileName) {
 				// Only clear git credentials if this is the currently active profile.
 				// Clearing credentials for a non-active profile would break the active one.
-				server := ctr.Config.GitHub.APIURL
-				if server == "" || server == "https://api.github.com" {
-					server = "https://github.com"
-				}
-				if err := ctr.GitHubClient.ClearGitCredentials(server); err != nil {
+				if err := ctr.GitHubClient.ClearGitCredentials(gitServer()); err != nil {
 					ui.Warning("Git credentials could not be cleared automatically.")
 					ui.Print("  You may need to clear them manually from your system's credential store.")
 				} else {
@@ -455,19 +450,18 @@ Examples:
 
 			p, _ := ctr.ProfileManager.Get(profileName)
 			if p != nil {
-				if p.GitHub == nil {
-					p.GitHub = &profile.GitHubConfig{Username: user.Login}
-				} else {
-					p.GitHub.Username = user.Login
-				}
+				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodOAuthDevice)
 				_ = ctr.ProfileManager.Update(p)
 			}
 
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
-			// Offer to upload SSH/GPG keys if they exist
-			setupUploadKeys(cmd.Context(), profileName)
+			if p != nil {
+				if def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID); ok {
+					setupUploadKeysForProvider(cmd.Context(), profileName, p, def)
+				}
+			}
 
 			return nil
 		},
@@ -572,19 +566,18 @@ Examples:
 
 			p, _ := ctr.ProfileManager.Get(profileName)
 			if p != nil {
-				if p.GitHub == nil {
-					p.GitHub = &profile.GitHubConfig{Username: user.Login}
-				} else {
-					p.GitHub.Username = user.Login
-				}
+				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodLegacy)
 				_ = ctr.ProfileManager.Update(p)
 			}
 
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
-			// Offer to upload SSH/GPG keys if they exist
-			setupUploadKeys(cmd.Context(), profileName)
+			if p != nil {
+				if def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID); ok {
+					setupUploadKeysForProvider(cmd.Context(), profileName, p, def)
+				}
+			}
 
 			return nil
 		},

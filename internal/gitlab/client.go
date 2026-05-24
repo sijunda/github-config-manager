@@ -121,6 +121,24 @@ func (c *Client) SSHKeyExists(ctx context.Context, publicKey string) (bool, erro
 	return false, nil
 }
 
+// DeleteSSHKey removes an SSH key from GitLab by matching the public key content.
+func (c *Client) DeleteSSHKey(ctx context.Context, publicKey string) (bool, error) {
+	keys, err := c.ListSSHKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+	localKey := normalizeSSHKey(publicKey)
+	for _, key := range keys {
+		if normalizeSSHKey(key.Key) == localKey {
+			if err := c.apiDelete(ctx, fmt.Sprintf("/user/keys/%d", key.ID)); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // UploadGPGKey uploads a public GPG key to GitLab.
 func (c *Client) UploadGPGKey(ctx context.Context, armoredKey string) error {
 	payload := map[string]string{"key": armoredKey}
@@ -144,6 +162,23 @@ func (c *Client) GPGKeyExists(ctx context.Context, keyID string) (bool, error) {
 	}
 	for _, key := range keys {
 		if strings.EqualFold(key.KeyID, keyID) || strings.EqualFold(key.Fingerprint, keyID) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// DeleteGPGKey removes a GPG key from GitLab by matching key ID or fingerprint.
+func (c *Client) DeleteGPGKey(ctx context.Context, keyID string) (bool, error) {
+	keys, err := c.ListGPGKeys(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, key := range keys {
+		if strings.EqualFold(key.KeyID, keyID) || strings.EqualFold(key.Fingerprint, keyID) {
+			if err := c.apiDelete(ctx, fmt.Sprintf("/user/gpg_keys/%d", key.ID)); err != nil {
+				return false, err
+			}
 			return true, nil
 		}
 	}
@@ -205,6 +240,26 @@ func (c *Client) apiPost(ctx context.Context, path string, payload, result inter
 
 	if result != nil {
 		return json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(result)
+	}
+	return nil
+}
+
+func (c *Client) apiDelete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.apiURL+path, nil)
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		return fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(respBody))
 	}
 	return nil
 }

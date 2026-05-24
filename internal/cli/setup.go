@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"git-config-manager/internal/audit"
 	"git-config-manager/internal/gpg"
 	"git-config-manager/internal/profile"
+	providerpkg "git-config-manager/internal/provider"
 	"git-config-manager/internal/shell"
 	"git-config-manager/internal/ssh"
 	"git-config-manager/pkg/ui"
@@ -25,7 +27,7 @@ This command will guide you through:
   2. Creating your first profile (name, email)
   3. SSH key generation
   4. GPG signing (optional)
-  5. GitHub authentication
+	5. Provider authentication
   6. Activating your profile
 
 Perfect for first-time users. Run this once and you're fully set up.`,
@@ -77,7 +79,7 @@ func runSetup(ctx context.Context) error {
 		if err := RegisterCredentialHelper(); err != nil {
 			ui.Warning("Could not register credential helper: %v", err)
 		} else {
-			ui.Success("Git credential helper registered for github.com")
+			ui.Success("Git credential helper registered for configured provider hosts")
 		}
 	}
 
@@ -170,7 +172,7 @@ func runSetup(ctx context.Context) error {
 			}
 
 			ui.Blank()
-			ui.Print("Public key (add to GitHub → Settings → SSH keys):")
+			ui.Print("Public key (add to GitHub/GitLab → user SSH key settings):")
 			ui.Print("  %s", ui.Dim(keyInfo.PublicKey))
 		}
 	} else {
@@ -228,119 +230,17 @@ func runSetup(ctx context.Context) error {
 	ui.Divider()
 
 	// ═══════════════════════════════════════════════
-	// Step 5: GitHub Authentication
+	// Step 5: Provider Authentication
 	// ═══════════════════════════════════════════════
-	ui.Header("Step 5/6: GitHub Authentication")
-	ui.Print("Connecting GitHub lets GCM manage your git credentials automatically.")
+	ui.Header("Step 5/6: Provider Authentication")
+	ui.Print("Connecting a provider lets GCM manage git credentials automatically.")
 	ui.Blank()
 
-	loginGH, err := ui.AskConfirm("Authenticate with GitHub now?", true)
-	if err != nil {
+	if err := runSetupProviderAuthentication(ctx, profileName); err != nil {
 		return err
 	}
 
-	if loginGH {
-		method, methodErr := ui.AskSelect("Authentication method:", []string{
-			"Personal Access Token (paste a token)",
-			"OAuth Device Flow (browser-based)",
-		})
-		if methodErr != nil {
-			return methodErr
-		}
-
-		if method == "Personal Access Token (paste a token)" {
-			ui.Blank()
-			ui.Print("Get a token at: %s", ui.Cyan("https://github.com/settings/tokens"))
-			ui.Print("Scopes needed: repo, admin:public_key, admin:gpg_key")
-			ui.Blank()
-
-			token, tokenErr := ui.AskPassword("Paste your token")
-			if tokenErr != nil {
-				return tokenErr
-			}
-
-			if token != "" {
-				// Verify before saving
-				ctr.GitHubClient.SetToken(token)
-				user, verifyErr := ctr.GitHubClient.VerifyToken(ctx)
-				if verifyErr != nil {
-					ui.Error("Token is invalid: %v", verifyErr)
-					ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
-				} else {
-					if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
-						ui.Error("Could not save token: %v", saveErr)
-					} else {
-						ui.Success("Authenticated as @%s", user.Login)
-						// Update profile with GitHub username
-						p, _ := ctr.ProfileManager.Get(profileName)
-						if p != nil {
-							if p.GitHub == nil {
-								p.GitHub = &profile.GitHubConfig{}
-							}
-							p.GitHub.Username = user.Login
-							_ = ctr.ProfileManager.Update(p)
-						}
-						// Auto-activate globally if first authenticated profile
-						activateAsGlobalIfFirst(profileName)
-					}
-				}
-			}
-		} else {
-			// OAuth device flow
-			ui.Blank()
-			dcr, flowErr := ctr.GitHubClient.InitiateDeviceFlow()
-			if flowErr != nil {
-				ui.Error("Could not start device flow: %v", flowErr)
-				ui.Print("  %s Try PAT instead: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
-			} else {
-				ui.Print("Open this URL in your browser:")
-				ui.Print("  %s", ui.Cyan(dcr.VerificationURI))
-				ui.Blank()
-				ui.Print("Enter this code: %s", ui.Bold(dcr.UserCode))
-				ui.Blank()
-
-				sp := ui.NewSpinner("Waiting for authorization...")
-				sp.Start()
-
-				token, pollErr := ctr.GitHubClient.PollForToken(
-					ctx, dcr.DeviceCode, dcr.Interval)
-				if pollErr != nil {
-					sp.StopError("Authorization failed")
-					ui.Error("%v", pollErr)
-				} else {
-					sp.Stop("Authorized!")
-					ctr.GitHubClient.SetToken(token)
-					user, _ := ctr.GitHubClient.VerifyToken(ctx)
-					if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
-						ui.Error("Could not save token: %v", saveErr)
-					} else {
-						login := profileName
-						if user != nil {
-							login = user.Login
-						}
-						ui.Success("Authenticated as @%s", login)
-
-						p, _ := ctr.ProfileManager.Get(profileName)
-						if p != nil {
-							if p.GitHub == nil {
-								p.GitHub = &profile.GitHubConfig{}
-							}
-							if user != nil {
-								p.GitHub.Username = user.Login
-							}
-							_ = ctr.ProfileManager.Update(p)
-						}
-						// Auto-activate globally if first authenticated profile
-						activateAsGlobalIfFirst(profileName)
-					}
-				}
-			}
-		}
-	} else {
-		ui.Info("Skipped — you can run %s later", ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
-	}
-
-	// After GitHub auth, offer to upload SSH/GPG keys if they exist
+	// After provider auth, offer to upload SSH/GPG keys if they exist.
 	setupUploadKeys(ctx, profileName)
 
 	ui.Blank()
@@ -407,68 +307,179 @@ func runSetup(ctx context.Context) error {
 	return nil
 }
 
-func setupUploadKeys(ctx context.Context, profileName string) {
-	// Check if we have a valid token for this profile
-	token, err := ctr.GitHubClient.LoadToken(profileName)
-	if err != nil || token == "" {
-		return
+func runSetupProviderAuthentication(ctx context.Context, profileName string) error {
+	defs := providerDefinitionsWithCapability(providerpkg.CapabilityPATAuth)
+	if len(defs) == 0 {
+		ui.Info("No authentication providers are configured yet.")
+		return nil
 	}
+
+	authenticate, err := ui.AskConfirm("Authenticate with a Git provider now?", true)
+	if err != nil {
+		return err
+	}
+	if !authenticate {
+		ui.Info("Skipped — you can run gcm github login or gcm gitlab login later")
+		return nil
+	}
+
+	options := make([]string, 0, len(defs))
+	byOption := make(map[string]providerpkg.Definition, len(defs))
+	for _, def := range defs {
+		option := providerOption(def)
+		options = append(options, option)
+		byOption[option] = def
+	}
+	selected, err := ui.AskMultiSelect("Select providers to authenticate:", options)
+	if err != nil {
+		return err
+	}
+	if len(selected) == 0 {
+		ui.Info("Skipped provider authentication")
+		return nil
+	}
+
+	for _, option := range selected {
+		def := byOption[option]
+		switch def.ID {
+		case providerpkg.GitHubID:
+			if err := runSetupGitHubAuthentication(ctx, profileName); err != nil {
+				return err
+			}
+		case providerpkg.GitLabID:
+			if err := runSetupGitLabAuthentication(ctx, profileName, def); err != nil {
+				return err
+			}
+		default:
+			ui.Warning("Provider %s is configured but not implemented yet", def.DisplayName)
+		}
+	}
+
+	return nil
+}
+
+func runSetupGitHubAuthentication(ctx context.Context, profileName string) error {
+	ui.SubHeader("GitHub Authentication")
+	method, err := ui.AskSelect("Authentication method:", []string{
+		"Personal Access Token (paste a token)",
+		"OAuth Device Flow (browser-based)",
+	})
+	if err != nil {
+		return err
+	}
+
+	if method == "Personal Access Token (paste a token)" {
+		ui.Blank()
+		ui.Print("Get a token at: %s", ui.Cyan("https://github.com/settings/tokens"))
+		ui.Print("Scopes needed: repo, admin:public_key, admin:gpg_key")
+		ui.Blank()
+
+		token, tokenErr := ui.AskPassword("Paste your GitHub token")
+		if tokenErr != nil {
+			return tokenErr
+		}
+		if token == "" {
+			ui.Info("Skipped GitHub authentication")
+			return nil
+		}
+
+		ctr.GitHubClient.SetToken(token)
+		user, verifyErr := ctr.GitHubClient.VerifyToken(ctx)
+		if verifyErr != nil {
+			ui.Error("GitHub token is invalid: %v", verifyErr)
+			ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
+			return nil
+		}
+		if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
+			ui.Error("Could not save GitHub token: %v", saveErr)
+			return nil
+		}
+		p, _ := ctr.ProfileManager.Get(profileName)
+		if p != nil {
+			setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodPAT)
+			_ = ctr.ProfileManager.Update(p)
+		}
+		ui.Success("Authenticated with GitHub as @%s", user.Login)
+		activateAsGlobalIfFirst(profileName)
+		return nil
+	}
+
+	ui.Blank()
+	dcr, flowErr := ctr.GitHubClient.InitiateDeviceFlow()
+	if flowErr != nil {
+		ui.Error("Could not start GitHub device flow: %v", flowErr)
+		ui.Print("  %s Try PAT instead: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
+		return nil
+	}
+	ui.Print("Open this URL in your browser:")
+	ui.Print("  %s", ui.Cyan(dcr.VerificationURI))
+	ui.Blank()
+	ui.Print("Enter this code: %s", ui.Bold(dcr.UserCode))
+	ui.Blank()
+
+	sp := ui.NewSpinner("Waiting for GitHub authorization...")
+	sp.Start()
+	token, pollErr := ctr.GitHubClient.PollForToken(ctx, dcr.DeviceCode, dcr.Interval)
+	if pollErr != nil {
+		sp.StopError("GitHub authorization failed")
+		ui.Error("%v", pollErr)
+		return nil
+	}
+	sp.Stop("GitHub authorized!")
+
 	ctr.GitHubClient.SetToken(token)
+	user, _ := ctr.GitHubClient.VerifyToken(ctx)
+	if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
+		ui.Error("Could not save GitHub token: %v", saveErr)
+		return nil
+	}
+	login := profileName
+	if user != nil {
+		login = user.Login
+	}
+	if p, _ := ctr.ProfileManager.Get(profileName); p != nil && user != nil {
+		setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodOAuthDevice)
+		_ = ctr.ProfileManager.Update(p)
+	}
+	ui.Success("Authenticated with GitHub as @%s", login)
+	activateAsGlobalIfFirst(profileName)
+	return nil
+}
 
-	p, err := ctr.ProfileManager.Get(profileName)
-	if err != nil || p == nil {
-		return
+func runSetupGitLabAuthentication(ctx context.Context, profileName string, def providerpkg.Definition) error {
+	ui.SubHeader("GitLab Authentication")
+	ui.Print("Get a token at: %s", ui.Cyan(strings.TrimRight(def.WebURL, "/")+"/-/user_settings/personal_access_tokens"))
+	ui.Print("Recommended scopes: api, read_user, read_repository, write_repository")
+	ui.Blank()
+
+	token, tokenErr := ui.AskPassword("Paste your GitLab token")
+	if tokenErr != nil {
+		return tokenErr
+	}
+	if token == "" {
+		ui.Info("Skipped GitLab authentication")
+		return nil
 	}
 
-	uploaded := false
-
-	// Upload SSH key if it exists and isn't already on GitHub
-	if p.SSH != nil && p.SSH.KeyPath != "" {
-		pubKey, pubErr := ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
-		if pubErr == nil && pubKey != "" {
-			exists, checkErr := ctr.GitHubClient.SSHKeyExists(ctx, pubKey)
-			if checkErr == nil && !exists {
-				ui.Blank()
-				upload, askErr := ui.AskConfirm("Upload SSH key to GitHub?", true)
-				if askErr == nil && upload {
-					title := fmt.Sprintf("gcm-%s", profileName)
-					if uploadErr := ctr.GitHubClient.UploadSSHKey(ctx, title, pubKey); uploadErr != nil {
-						ui.Warning("Could not upload SSH key: %v", uploadErr)
-					} else {
-						ui.Success("SSH key uploaded to GitHub")
-						uploaded = true
-					}
-				}
-			} else if checkErr == nil && exists {
-				ui.Blank()
-				ui.Success("SSH key already on GitHub")
-			}
-		}
+	tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodPAT, TokenType: "pat"}
+	ctr.GitLabClient.SetTokenSet(tokenSet)
+	user, verifyErr := ctr.GitLabClient.VerifyToken(ctx)
+	if verifyErr != nil {
+		ui.Error("GitLab token is invalid: %v", verifyErr)
+		ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm gitlab login %s", profileName)))
+		return nil
 	}
 
-	// Upload GPG key if it exists and isn't already on GitHub
-	if p.GPG != nil && p.GPG.KeyID != "" {
-		exists, checkErr := ctr.GitHubClient.GPGKeyExists(ctx, p.GPG.KeyID)
-		if checkErr == nil && !exists {
-			if !uploaded {
-				ui.Blank()
-			}
-			upload, askErr := ui.AskConfirm("Upload GPG key to GitHub?", true)
-			if askErr == nil && upload {
-				pubKey, gpgErr := ctr.GPGManager.GetPublicKey(p.GPG.KeyID)
-				if gpgErr != nil {
-					ui.Warning("Could not read GPG public key: %v", gpgErr)
-				} else if uploadErr := ctr.GitHubClient.UploadGPGKey(ctx, pubKey); uploadErr != nil {
-					ui.Warning("Could not upload GPG key: %v", uploadErr)
-				} else {
-					ui.Success("GPG key uploaded to GitHub")
-				}
-			}
-		} else if checkErr == nil && exists {
-			if !uploaded {
-				ui.Blank()
-			}
-			ui.Success("GPG key already on GitHub")
-		}
+	p, _ := ctr.ProfileManager.Get(profileName)
+	if saveErr := saveProviderToken(profileName, def, p, tokenSet); saveErr != nil {
+		ui.Error("Could not save GitLab token: %v", saveErr)
+		return nil
 	}
+	if p != nil {
+		setProfileProviderAccount(p, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
+		_ = ctr.ProfileManager.Update(p)
+	}
+	ui.Success("Authenticated with GitLab as @%s", user.Username)
+	activateAsGlobalIfFirst(profileName)
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"git-config-manager/internal/audit"
 	"git-config-manager/internal/profile"
+	providerpkg "git-config-manager/internal/provider"
 	"git-config-manager/internal/ssh"
 	"git-config-manager/pkg/ui"
 
@@ -104,34 +105,10 @@ Examples:
 				_ = ctr.ProfileManager.Update(p)
 			}
 
-			// Auto-upload SSH key to GitHub if token is available
-			if token, err := ctr.GitHubClient.LoadToken(profileName); err == nil && token != "" {
-				ctr.GitHubClient.SetToken(token)
-				ctx := context.Background()
-
-				// Check if key already exists
-				exists, checkErr := ctr.GitHubClient.SSHKeyExists(ctx, keyInfo.PublicKey)
-				if checkErr == nil && exists {
-					ui.Blank()
-					ui.Info("SSH key already exists on GitHub — skipping upload.")
-				} else {
-					ui.Blank()
-					upload, askErr := ui.AskConfirm("Upload SSH key to GitHub automatically?", true)
-					if askErr == nil && upload {
-						sp2 := ui.NewSpinner("Uploading SSH key to GitHub...")
-						sp2.Start()
-
-						title := fmt.Sprintf("gcm-%s-%s", profileName, keyInfo.Type)
-						if uploadErr := ctr.GitHubClient.UploadSSHKey(ctx, title, keyInfo.PublicKey); uploadErr != nil {
-							sp2.StopError("Failed to upload SSH key")
-							ui.Warning("Upload failed: %v", uploadErr)
-							ui.Print("  You can upload manually at: https://github.com/settings/keys")
-						} else {
-							sp2.Stop("SSH key uploaded to GitHub!")
-							ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
-								map[string]string{"type": keyInfo.Type, "path": keyInfo.Path, "uploaded": "true"}, nil)
-						}
-					}
+			for _, def := range authenticatedProvidersForProfile(profileName, p, providerpkg.CapabilitySSHKeys) {
+				if setupSSHKeyUploadForProvider(cmd.Context(), profileName, p, def, keyInfo.PublicKey, keyInfo.Type) {
+					ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
+						map[string]string{"type": keyInfo.Type, "path": keyInfo.Path, "uploaded": "true", "provider": string(def.ID)}, nil)
 				}
 			}
 
@@ -186,8 +163,16 @@ func sshListRun() error {
 }
 
 func newSSHTestCmd() *cobra.Command {
-	return &cobra.Command{
-		Use: "test <profile>", Short: "Test SSH connection to GitHub", Args: requireArgs(1),
+	var providerName string
+	cmd := &cobra.Command{
+		Use:   "test <profile>",
+		Short: "Test SSH connection to a provider",
+		Long: `Test SSH authentication for a profile against a configured provider host.
+
+Examples:
+  gcm ssh test work --provider github
+  gcm ssh test work --provider gitlab`,
+		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			p, err := ctr.ProfileManager.Get(args[0])
 			if err != nil {
@@ -203,21 +188,32 @@ func newSSHTestCmd() *cobra.Command {
 				return nil
 			}
 
-			sp := ui.NewSpinner("Testing SSH connection...")
+			def, err := selectProviderWithCapability(providerName, providerpkg.CapabilitySSHKeys, "Test SSH connection to which provider?")
+			if err != nil {
+				return err
+			}
+			host := def.SSHHost
+			if host == "" {
+				host = firstProviderHost(def)
+			}
+
+			sp := ui.NewSpinner(fmt.Sprintf("Testing SSH connection to %s...", def.DisplayName))
 			sp.Start()
 
-			output, testErr := ctr.SSHManager.TestConnection(p.SSH.KeyPath)
+			output, testErr := ctr.SSHManager.TestConnectionToHost(p.SSH.KeyPath, host, def.SSHPort)
 			if testErr != nil {
 				sp.StopError("SSH test failed")
 				ui.Error("%s", output)
 				return testErr
 			}
 
-			sp.Stop("SSH connection successful!")
+			sp.Stop(fmt.Sprintf("SSH connection to %s successful!", def.DisplayName))
 			ui.Print(output)
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&providerName, "provider", "", "Provider to test (github, gitlab)")
+	return cmd
 }
 
 func newSSHCopyCmd() *cobra.Command {
@@ -248,18 +244,22 @@ func newSSHCopyCmd() *cobra.Command {
 }
 
 func newSSHUploadCmd() *cobra.Command {
-	var force bool
+	var (
+		force        bool
+		providerName string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "upload <profile>",
-		Short: "Upload SSH key to GitHub",
-		Long: `Upload the profile's SSH public key to GitHub.
+		Short: "Upload SSH key to a provider",
+		Long: `Upload the profile's SSH public key to GitHub, GitLab, or another configured provider.
 
 Checks for duplicates before uploading. Use --force to skip the check.
 
 Examples:
-  gcm ssh upload work
-  gcm ssh upload work --force`,
+	  gcm ssh upload work --provider github
+	  gcm ssh upload work --provider gitlab
+	  gcm ssh upload work --provider gitlab --force`,
 		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -276,11 +276,16 @@ Examples:
 				return nil
 			}
 
-			token, err := ctr.GitHubClient.LoadToken(profileName)
-			if err != nil || token == "" {
-				ui.Error("No GitHub token found for profile %q", profileName)
+			def, err := selectProviderWithCapability(providerName, providerpkg.CapabilitySSHKeys, "Upload SSH key to which provider?")
+			if err != nil {
+				return err
+			}
+
+			token, err := loadProviderToken(profileName, def, p)
+			if err != nil || token.AccessToken == "" {
+				ui.Error("No %s token found for profile %q", def.DisplayName, profileName)
 				ui.Blank()
-				ui.Print("  Login first: gcm github login %s", profileName)
+				ui.Print("  Login first: gcm %s login %s", def.ID, profileName)
 				return nil
 			}
 
@@ -289,15 +294,17 @@ Examples:
 				return fmt.Errorf("could not read public key: %w", err)
 			}
 
-			ctr.GitHubClient.SetToken(token)
+			if err := setProviderToken(def, token); err != nil {
+				return err
+			}
 			ctx := context.Background()
 
 			// Check for duplicates
 			if !force {
-				sp := ui.NewSpinner("Checking if key already exists on GitHub...")
+				sp := ui.NewSpinner(fmt.Sprintf("Checking if key already exists on %s...", def.DisplayName))
 				sp.Start()
 
-				exists, checkErr := ctr.GitHubClient.SSHKeyExists(ctx, pubKey)
+				exists, checkErr := providerSSHKeyExists(ctx, def, pubKey)
 				if checkErr != nil {
 					sp.StopError("Could not check existing keys")
 					ui.Warning("Check failed: %v", checkErr)
@@ -305,31 +312,33 @@ Examples:
 					return nil
 				}
 				if exists {
-					sp.Stop("Key already exists on GitHub")
+					sp.Stop(fmt.Sprintf("Key already exists on %s", def.DisplayName))
 					ui.Info("This SSH key is already uploaded — no action needed.")
 					return nil
 				}
-				sp.Stop("Key not found on GitHub — uploading")
+				sp.Stop(fmt.Sprintf("Key not found on %s — uploading", def.DisplayName))
 			}
 
-			sp2 := ui.NewSpinner("Uploading SSH key to GitHub...")
+			sp2 := ui.NewSpinner(fmt.Sprintf("Uploading SSH key to %s...", def.DisplayName))
 			sp2.Start()
 
-			title := fmt.Sprintf("gcm-%s-%s", profileName, p.SSH.KeyType)
-			if uploadErr := ctr.GitHubClient.UploadSSHKey(ctx, title, pubKey); uploadErr != nil {
+			title := providerResourceName(profileName, def, "ssh", string(p.SSH.KeyType))
+			if uploadErr := uploadProviderSSHKey(ctx, def, title, pubKey); uploadErr != nil {
 				sp2.StopError("Failed to upload SSH key")
 				ui.Warning("Upload failed: %v", uploadErr)
-				ui.Print("  You can upload manually at: https://github.com/settings/keys")
+				ui.Print("  You can upload manually at: %s", providerManualKeyURL(def, "ssh"))
 				return nil
 			}
 
-			sp2.Stop("SSH key uploaded to GitHub!")
+			sp2.Stop(fmt.Sprintf("SSH key uploaded to %s!", def.DisplayName))
+			ui.Detail("Title", title)
 			ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
-				map[string]string{"action": "upload", "uploaded": "true"}, nil)
+				map[string]string{"action": "upload", "uploaded": "true", "provider": string(def.ID), "title": title}, nil)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip duplicate check")
+	cmd.Flags().StringVar(&providerName, "provider", "", "Provider to upload to (github, gitlab)")
 	return cmd
 }
