@@ -305,24 +305,45 @@ function Remove-GcmDirectory {
     }
 }
 
-# Remove git credential config for github.com
+# Remove git credential config for all hosts
 function Remove-GitCredential {
     Print-Step "Cleaning git credential config..."
-
-    $credHelper = & git config --global "credential.https://github.com.helper" 2>$null
-    $credUser = & git config --global "credential.https://github.com.username" 2>$null
     $cleaned = $false
 
-    if ($credHelper) {
-        & git config --global --unset-all "credential.https://github.com.helper" 2>$null
-        Print-Success "Removed credential.https://github.com.helper"
+    # Common hosts
+    foreach ($host in @("https://github.com", "https://gitlab.com", "https://bitbucket.org", "https://dev.azure.com")) {
+        $helper = & git config --global "credential.$host.helper" 2>$null
+        if ($helper) {
+            & git config --global --unset-all "credential.$host.helper" 2>$null
+            Print-Success "Removed credential helper for $host"
+            $cleaned = $true
+        }
+        $user = & git config --global "credential.$host.username" 2>$null
+        if ($user) {
+            & git config --global --unset-all "credential.$host.username" 2>$null
+            Print-Success "Removed credential username for $host"
+            $cleaned = $true
+        }
+    }
+
+    # Check for any gcm-related credential helpers
+    $allConfig = & git config --global --list 2>$null
+    $gcmCreds = $allConfig | Where-Object { $_ -match "credential.*helper.*gcm" }
+    foreach ($entry in $gcmCreds) {
+        $key = ($entry -split "=")[0]
+        & git config --global --unset-all $key 2>$null
+        Print-Success "Removed $key"
         $cleaned = $true
     }
-    if ($credUser) {
-        & git config --global --unset-all "credential.https://github.com.username" 2>$null
-        Print-Success "Removed credential.https://github.com.username"
+
+    # Global credential.helper
+    $globalCred = & git config --global credential.helper 2>$null
+    if ($globalCred -match "gcm") {
+        & git config --global --unset-all credential.helper 2>$null
+        Print-Success "Removed global credential.helper (gcm)"
         $cleaned = $true
     }
+
     if (-not $cleaned) {
         Print-Info "No GCM credential config found"
     }
@@ -348,8 +369,12 @@ function Show-UninstallOptions {
     Write-Host "$($Colors.Red)$($Colors.Bold)3)$($Colors.Reset) $($Colors.White)Nuclear Clean$($Colors.Reset) $($Colors.Dim)(Everything - no trace left)$($Colors.Reset)"
     Write-Host "   * Everything in option 2, plus:"
     Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git global identity (user.name, user.email, signingkey)"
-    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git credential config for github.com"
-    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git local identity and GCM markers in current repo"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git credential config for ALL hosts"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) GCM-generated SSH keys + flush from ssh-agent"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) GCM-generated GPG keys"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) git local identity and GCM markers (recursive scan)"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) Windows Credential Manager entries"
+    Write-Host "   * $($Colors.Red)Delete$($Colors.Reset) Shell completions and temp files"
     Write-Host ""
     Write-Host "$($Colors.Gray)$($Colors.Bold)4)$($Colors.Reset) $($Colors.White)Cancel$($Colors.Reset)"
     Write-Host "   * Exit without making any changes"
@@ -374,9 +399,14 @@ function Show-Completion {
             Write-Host " * gcm binary (from all locations)"
             Write-Host " * PATH configuration"
             Write-Host " * Git global identity (user.name, user.email, signingkey, gpgsign)"
-            Write-Host " * Git local identity and GCM markers"
-            Write-Host " * Git credential config for github.com"
+            Write-Host " * Git local identity and GCM markers (recursive scan)"
+            Write-Host " * Git credential config for ALL hosts"
+            Write-Host " * GCM-generated SSH keys + flushed from ssh-agent"
+            Write-Host " * GCM-generated GPG keys"
             Write-Host " * All profiles, tokens, config, backups, cache"
+            Write-Host " * Windows Credential Manager entries"
+            Write-Host " * Shell completions and temp files"
+            Write-Host " * Project markers (.gcm-profile, gcm-session)"
         }
         "complete" {
             Write-Host "$($Colors.Green)$($Colors.Bold) $($Icons.Checkmark)  COMPLETE UNINSTALLATION SUCCESSFUL!$($Colors.Reset)"
@@ -423,7 +453,7 @@ function Remove-GitIdentity {
     Print-Step "Removing git identity configuration..."
     $cleaned = $false
 
-    foreach ($key in @("user.name", "user.email", "user.signingkey", "commit.gpgsign", "gpg.format", "core.sshCommand")) {
+    foreach ($key in @("user.name", "user.email", "user.signingkey", "commit.gpgsign", "gpg.format", "gpg.program", "core.sshCommand", "tag.gpgsign", "tag.forceSignAnnotated")) {
         $val = & git config --global $key 2>$null
         if ($val) {
             & git config --global --unset-all $key 2>$null
@@ -463,6 +493,175 @@ function Remove-GitIdentity {
     if (-not $cleaned) {
         Print-Info "No git identity configuration found"
     }
+}
+
+# Remove SSH keys generated by GCM
+function Remove-SshKeys {
+    Print-Step "Removing GCM-generated SSH keys..."
+
+    $gcmDir = Join-Path $env:USERPROFILE ".gcm"
+    $profilesDir = Join-Path $gcmDir "profiles"
+    $sshDir = Join-Path $env:USERPROFILE ".ssh"
+    $sshFound = @()
+
+    if (Test-Path $profilesDir) {
+        Get-ChildItem -Path $profilesDir -Filter "*.yaml" -ErrorAction SilentlyContinue | ForEach-Object {
+            $profileName = $_.BaseName
+            foreach ($prefix in @("id_ed25519", "id_rsa", "id_ecdsa")) {
+                $keyPath = Join-Path $sshDir "${prefix}_${profileName}"
+                if (Test-Path $keyPath) { $sshFound += $keyPath }
+                if (Test-Path "$keyPath.pub") { $sshFound += "$keyPath.pub" }
+            }
+        }
+    }
+
+    if ($sshFound.Count -eq 0) {
+        Print-Info "No GCM-generated SSH keys found"
+        return
+    }
+
+    foreach ($f in $sshFound) {
+        Remove-Item -Path $f -Force -ErrorAction SilentlyContinue
+    }
+
+    # Remove from ssh-agent
+    if (Get-Command ssh-add -ErrorAction SilentlyContinue) {
+        foreach ($f in $sshFound) {
+            if ($f -notmatch "\.pub$") {
+                & ssh-add -d $f 2>$null
+            }
+        }
+    }
+
+    Print-Success "Removed $($sshFound.Count) SSH key file(s)"
+}
+
+# Remove GPG keys generated by GCM
+function Remove-GpgKeys {
+    Print-Step "Removing GCM-generated GPG keys..."
+
+    if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        Print-Info "GPG not installed - skipping"
+        return
+    }
+
+    $gcmDir = Join-Path $env:USERPROFILE ".gcm"
+    $profilesDir = Join-Path $gcmDir "profiles"
+    $gpgKeyIds = @()
+
+    if (Test-Path $profilesDir) {
+        Get-ChildItem -Path $profilesDir -Filter "*.yaml" -ErrorAction SilentlyContinue | ForEach-Object {
+            $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+            if ($content -match "key_id:\s*[`"']?([A-Fa-f0-9]+)[`"']?") {
+                $gpgKeyIds += $Matches[1]
+            }
+        }
+    }
+
+    if ($gpgKeyIds.Count -eq 0) {
+        Print-Info "No GCM GPG key IDs found"
+        return
+    }
+
+    foreach ($kid in $gpgKeyIds) {
+        & gpg --batch --yes --delete-secret-and-public-key $kid 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Print-Success "Deleted GPG key $kid"
+        } else {
+            Print-Warning "GPG key $kid not found in keyring (already deleted?)"
+        }
+    }
+}
+
+# Remove credential store entries
+function Remove-CredentialStore {
+    Print-Step "Cleaning credential store entries..."
+
+    $cleaned = $false
+
+    # Windows Credential Manager
+    if (Get-Command cmdkey -ErrorAction SilentlyContinue) {
+        $creds = & cmdkey /list 2>$null
+        if ($creds -match "github\.com|gcm") {
+            & cmdkey /delete:git:https://github.com 2>$null
+            & cmdkey /delete:github.com 2>$null
+            Print-Success "Removed github.com from Windows Credential Manager"
+            $cleaned = $true
+        }
+    }
+
+    # .git-credentials file
+    $credFile = Join-Path $env:USERPROFILE ".git-credentials"
+    if (Test-Path $credFile) {
+        $lines = Get-Content $credFile | Where-Object { $_ -notmatch "github\.com|gitlab\.com" }
+        Set-Content -Path $credFile -Value $lines -Force
+        Print-Success "Removed github/gitlab entries from .git-credentials"
+        $cleaned = $true
+    }
+
+    if (-not $cleaned) {
+        Print-Info "No credential store entries found"
+    }
+}
+
+# Remove project markers recursively
+function Remove-ProjectMarkers {
+    Print-Step "Scanning for .gcm-profile and gcm-session markers..."
+
+    $markersFound = 0
+    $scanDirs = @(
+        (Join-Path $env:USERPROFILE "projects"),
+        (Join-Path $env:USERPROFILE "Projects"),
+        (Join-Path $env:USERPROFILE "dev"),
+        (Join-Path $env:USERPROFILE "Dev"),
+        (Join-Path $env:USERPROFILE "src"),
+        (Join-Path $env:USERPROFILE "work"),
+        (Join-Path $env:USERPROFILE "repos"),
+        (Join-Path $env:USERPROFILE "code")
+    )
+
+    foreach ($dir in $scanDirs) {
+        if (-not (Test-Path $dir)) { continue }
+        Get-ChildItem -Path $dir -Filter ".gcm-profile" -Recurse -Depth 4 -Force -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item $_.FullName -Force
+            $markersFound++
+        }
+        Get-ChildItem -Path $dir -Filter "gcm-session" -Recurse -Depth 5 -Force -ErrorAction SilentlyContinue | Where-Object {
+            $_.Directory.Name -eq ".git"
+        } | ForEach-Object {
+            Remove-Item $_.FullName -Force
+            $markersFound++
+        }
+    }
+
+    if ($markersFound -gt 0) {
+        Print-Success "Removed $markersFound project marker(s)"
+    } else {
+        Print-Info "No project markers found"
+    }
+}
+
+# Remove shell completions and temp files
+function Remove-CompletionsAndTemp {
+    Print-Step "Removing completions and temp files..."
+
+    # PowerShell completion module
+    $psModulePaths = @(
+        (Join-Path $env:USERPROFILE "Documents\PowerShell\Modules\GcmCompletion"),
+        (Join-Path $env:USERPROFILE "Documents\WindowsPowerShell\Modules\GcmCompletion")
+    )
+
+    foreach ($modPath in $psModulePaths) {
+        if (Test-Path $modPath) {
+            Remove-Item -Path $modPath -Recurse -Force
+            Print-Success "Removed PowerShell completion module"
+        }
+    }
+
+    # Temp files
+    Get-ChildItem -Path $env:TEMP -Filter "gcm-*" -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+
+    Print-Success "Cleaned temp files"
 }
 
 # Main uninstallation function
@@ -598,7 +797,17 @@ function Main {
                 Write-Host ""
                 Remove-GitCredential
                 Write-Host ""
+                Remove-SshKeys
+                Write-Host ""
+                Remove-GpgKeys
+                Write-Host ""
                 Remove-GcmDirectory
+                Write-Host ""
+                Remove-CredentialStore
+                Write-Host ""
+                Remove-ProjectMarkers
+                Write-Host ""
+                Remove-CompletionsAndTemp
                 Write-Host ""
                 Show-Completion "nuclear"
             } else {

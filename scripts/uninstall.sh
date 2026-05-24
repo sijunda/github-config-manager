@@ -386,20 +386,48 @@ remove_gcm_dir() {
 remove_git_credential() {
     print_step "Cleaning git credential config..."
 
-    local cred_helper
-    cred_helper=$(git config --global "credential.https://github.com.helper" 2>/dev/null || true)
-    local cred_user
-    cred_user=$(git config --global "credential.https://github.com.username" 2>/dev/null || true)
+    # Common hosts GCM might be configured for
+    local cred_hosts=("https://github.com" "https://gitlab.com" "https://bitbucket.org" "https://dev.azure.com")
+    local cleaned=false
 
-    if [[ -n "$cred_helper" ]]; then
-        git config --global --unset-all "credential.https://github.com.helper" 2>/dev/null || true
-        print_success "Removed credential.https://github.com.helper"
+    for host in "${cred_hosts[@]}"; do
+        local helper_val
+        helper_val=$(git config --global "credential.${host}.helper" 2>/dev/null || true)
+        if [[ -n "$helper_val" ]]; then
+            git config --global --unset-all "credential.${host}.helper" 2>/dev/null || true
+            print_success "Removed credential helper for ${host}"
+            cleaned=true
+        fi
+        local user_val
+        user_val=$(git config --global "credential.${host}.username" 2>/dev/null || true)
+        if [[ -n "$user_val" ]]; then
+            git config --global --unset-all "credential.${host}.username" 2>/dev/null || true
+            print_success "Removed credential username for ${host}"
+            cleaned=true
+        fi
+    done
+
+    # Remove any other credential entries referencing gcm
+    local extra_keys
+    extra_keys=$(git config --global --list 2>/dev/null | grep -i "credential.*helper.*gcm" | cut -d= -f1 || true)
+    if [[ -n "$extra_keys" ]]; then
+        while IFS= read -r key; do
+            [[ -n "$key" ]] && git config --global --unset-all "$key" 2>/dev/null || true
+            print_success "Removed $key"
+            cleaned=true
+        done <<< "$extra_keys"
     fi
-    if [[ -n "$cred_user" ]]; then
-        git config --global --unset-all "credential.https://github.com.username" 2>/dev/null || true
-        print_success "Removed credential.https://github.com.username"
+
+    # Global credential.helper if it references gcm
+    local global_cred
+    global_cred=$(git config --global credential.helper 2>/dev/null || true)
+    if echo "$global_cred" | grep -qi "gcm"; then
+        git config --global --unset-all credential.helper 2>/dev/null || true
+        print_success "Removed global credential.helper (gcm)"
+        cleaned=true
     fi
-    if [[ -z "$cred_helper" && -z "$cred_user" ]]; then
+
+    if [[ "$cleaned" == false ]]; then
         print_info "No GCM credential config found"
     fi
 }
@@ -498,7 +526,7 @@ remove_git_identity() {
     print_step "Removing git identity configuration..."
 
     local cleaned=false
-    for key in user.name user.email user.signingkey commit.gpgsign gpg.format core.sshCommand; do
+    for key in user.name user.email user.signingkey commit.gpgsign gpg.format gpg.program core.sshCommand tag.gpgsign tag.forceSignAnnotated; do
         if git config --global "$key" &>/dev/null; then
             git config --global --unset-all "$key" 2>/dev/null || true
             print_success "Unset git global $key"
@@ -535,6 +563,160 @@ remove_git_identity() {
     fi
 }
 
+# Remove macOS Keychain entries
+remove_keychain_entries() {
+    print_step "Removing macOS Keychain entries..."
+
+    if [[ "$(uname)" != "Darwin" ]] || ! command -v security &>/dev/null; then
+        print_info "Not macOS or security command unavailable — skipping"
+        return
+    fi
+
+    local cleaned=false
+
+    # Remove ALL github.com internet password entries
+    while security delete-internet-password -s github.com &>/dev/null; do
+        cleaned=true
+    done
+    $cleaned && print_success "Removed github.com internet passwords from Keychain"
+
+    # Remove generic passwords
+    local cleaned2=false
+    while security delete-generic-password -s github.com &>/dev/null; do
+        cleaned2=true
+    done
+    $cleaned2 && print_success "Removed github.com generic passwords from Keychain"
+
+    # Remove GCM-labeled entries
+    local cleaned3=false
+    while security delete-generic-password -l "gcm" &>/dev/null; do
+        cleaned3=true
+    done
+    $cleaned3 && print_success "Removed gcm-labeled entries from Keychain"
+
+    if [[ "$cleaned" == false && "$cleaned2" == false && "$cleaned3" == false ]]; then
+        print_info "No GCM-related Keychain entries found"
+    fi
+}
+
+# Remove git credential cache/store file entries
+remove_credential_store() {
+    print_step "Cleaning git credential cache & store..."
+
+    local cleaned=false
+
+    # Kill credential cache daemon
+    if pgrep -f "git-credential-cache--daemon" &>/dev/null; then
+        git credential-cache exit 2>/dev/null || true
+        print_success "Stopped git-credential-cache daemon"
+        cleaned=true
+    fi
+
+    # Clean ~/.git-credentials
+    local cred_store="${HOME}/.git-credentials"
+    if [[ -f "$cred_store" ]] && grep -qi "github.com\|gitlab.com" "$cred_store" 2>/dev/null; then
+        grep -vi "github.com\|gitlab.com" "$cred_store" > "${cred_store}.tmp" 2>/dev/null || true
+        mv "${cred_store}.tmp" "$cred_store"
+        chmod 600 "$cred_store"
+        print_success "Removed github/gitlab entries from $cred_store"
+        cleaned=true
+    fi
+
+    # Clean XDG credential store
+    local xdg_cred="${XDG_CONFIG_HOME:-${HOME}/.config}/git/credentials"
+    if [[ -f "$xdg_cred" ]] && grep -qi "github.com\|gitlab.com" "$xdg_cred" 2>/dev/null; then
+        grep -vi "github.com\|gitlab.com" "$xdg_cred" > "${xdg_cred}.tmp" 2>/dev/null || true
+        mv "${xdg_cred}.tmp" "$xdg_cred"
+        chmod 600 "$xdg_cred"
+        print_success "Removed github/gitlab entries from $xdg_cred"
+        cleaned=true
+    fi
+
+    if [[ "$cleaned" == false ]]; then
+        print_info "No credential cache/store entries found"
+    fi
+}
+
+# Scan and remove .gcm-profile markers from project directories
+remove_project_markers() {
+    print_step "Scanning for .gcm-profile and gcm-session markers..."
+
+    local markers_found=0
+    local scan_dirs=("${HOME}/projects" "${HOME}/Projects" "${HOME}/dev" "${HOME}/Dev" "${HOME}/src" "${HOME}/work" "${HOME}/Work" "${HOME}/repos" "${HOME}/code")
+
+    for dir in "${scan_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        while IFS= read -r -d '' marker; do
+            rm -f "$marker"
+            markers_found=$((markers_found + 1))
+        done < <(find "$dir" -maxdepth 4 -name ".gcm-profile" -print0 2>/dev/null)
+
+        while IFS= read -r -d '' marker; do
+            rm -f "$marker"
+            markers_found=$((markers_found + 1))
+        done < <(find "$dir" -maxdepth 5 -path "*/.git/gcm-session" -print0 2>/dev/null)
+    done
+
+    if [[ $markers_found -gt 0 ]]; then
+        print_success "Removed $markers_found project marker(s)"
+    else
+        print_info "No project markers found"
+    fi
+}
+
+# Remove shell completion files
+remove_completions() {
+    print_step "Removing shell completion files..."
+
+    local completion_paths=(
+        "${HOME}/.zsh/completions/_gcm"
+        "${HOME}/.local/share/zsh/site-functions/_gcm"
+        "/usr/local/share/zsh/site-functions/_gcm"
+        "${HOME}/.bash_completion.d/gcm"
+        "/etc/bash_completion.d/gcm"
+        "${HOME}/.local/share/bash-completion/completions/gcm"
+        "${HOME}/.config/fish/completions/gcm.fish"
+        "/usr/local/share/fish/vendor_completions.d/gcm.fish"
+    )
+
+    local found=false
+    for cpath in "${completion_paths[@]}"; do
+        if [[ -f "$cpath" ]]; then
+            rm -f "$cpath"
+            print_success "Removed $cpath"
+            found=true
+        fi
+    done
+
+    if [[ "$found" == false ]]; then
+        print_info "No GCM completion files found"
+    fi
+}
+
+# Remove XDG config and temp files
+remove_xdg_and_temp() {
+    print_step "Removing XDG config and temp files..."
+
+    local xdg_gcm="${XDG_CONFIG_HOME:-${HOME}/.config}/gcm"
+    if [[ -d "$xdg_gcm" ]]; then
+        rm -rf "$xdg_gcm"
+        print_success "Removed $xdg_gcm"
+    fi
+
+    # Remove temp files
+    find /tmp -maxdepth 1 -name "gcm-*" -exec rm -rf {} + 2>/dev/null || true
+
+    # Remove leftover backup files from previous resets
+    local shell_files=("${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile" "${HOME}/.profile" "${HOME}/.zprofile")
+    for rc in "${shell_files[@]}"; do
+        [[ -f "${rc}.gcm-reset-backup" ]] && rm -f "${rc}.gcm-reset-backup"
+    done
+
+    # Clear shell hash table
+    hash -r 2>/dev/null || true
+    print_success "Cleared shell hash table and temp files"
+}
+
 # Show uninstall options
 show_uninstall_options() {
     print_separator "═"
@@ -555,9 +737,14 @@ show_uninstall_options() {
     echo -e "${RED}${BOLD}3)${NC} ${WHITE}Nuclear Clean${NC} ${DIM}(Everything — no trace left)${NC}"
     echo "   • Everything in option 2, plus:"
     echo -e "   • ${RED}Delete${NC} git global identity (user.name, user.email, signingkey)"
-    echo -e "   • ${RED}Delete${NC} git credential config for github.com"
+    echo -e "   • ${RED}Delete${NC} git credential config for ALL hosts"
     echo -e "   • ${RED}Delete${NC} GCM-generated SSH keys and GPG keys"
-    echo -e "   • ${RED}Delete${NC} git local identity and GCM markers in current repo"
+    echo -e "   • ${RED}Delete${NC} SSH agent loaded keys"
+    echo -e "   • ${RED}Delete${NC} git local identity and GCM markers (recursive scan)"
+    echo -e "   • ${RED}Delete${NC} macOS Keychain entries for github.com"
+    echo -e "   • ${RED}Delete${NC} git credential cache/store entries"
+    echo -e "   • ${RED}Delete${NC} shell completion files"
+    echo -e "   • ${RED}Delete${NC} XDG config, temp files, hash cache"
     echo
     echo -e "${GRAY}${BOLD}4)${NC} ${WHITE}Cancel${NC}"
     echo "   • Exit without making any changes"
@@ -582,11 +769,15 @@ show_completion() {
             echo " • gcm binary (from all locations)"
             echo " • Shell integration (all shell rc files)"
             echo " • Git global identity (user.name, user.email, signingkey, gpgsign)"
-            echo " • Git local identity and GCM markers"
-            echo " • Git credential config for github.com"
-            echo " • GCM-generated SSH keys"
+            echo " • Git local identity and GCM markers (recursive scan)"
+            echo " • Git credential config for all hosts"
+            echo " • Git credential cache/store entries"
+            echo " • GCM-generated SSH keys + flushed from ssh-agent"
             echo " • GCM-generated GPG keys (secret + public)"
             echo " • All profiles, tokens, config, backups, cache (~/.gcm)"
+            echo " • macOS Keychain entries"
+            echo " • Shell completion files"
+            echo " • XDG config, temp files"
             ;;
         complete)
             echo -e "${GREEN}${BOLD} ${CHECKMARK}  COMPLETE UNINSTALLATION SUCCESSFUL!${NC}"
@@ -767,6 +958,16 @@ main() {
                 remove_gpg_keys
                 echo
                 remove_gcm_dir
+                echo
+                remove_keychain_entries
+                echo
+                remove_credential_store
+                echo
+                remove_project_markers
+                echo
+                remove_completions
+                echo
+                remove_xdg_and_temp
                 echo
                 show_completion "nuclear"
             else

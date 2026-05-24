@@ -249,8 +249,12 @@ echo.
 echo %RED%%BOLD%3)%RESET% %WHITE%Nuclear Clean%RESET% %DIM%(Everything - no trace left)%RESET%
 echo    * Everything in option 2, plus:
 echo    * %RED%Delete%RESET% git global identity (user.name, user.email, signingkey)
-echo    * %RED%Delete%RESET% git credential config for github.com
-echo    * %RED%Delete%RESET% git local identity and GCM markers in current repo
+echo    * %RED%Delete%RESET% git credential config for ALL hosts
+echo    * %RED%Delete%RESET% GCM-generated SSH keys
+echo    * %RED%Delete%RESET% GCM-generated GPG keys
+echo    * %RED%Delete%RESET% git local identity and GCM markers (recursive scan)
+echo    * %RED%Delete%RESET% Windows Credential Manager entries
+echo    * %RED%Delete%RESET% Temp files and completions
 echo.
 echo %GRAY%%BOLD%4)%RESET% %WHITE%Cancel%RESET%
 echo    * Exit without making any changes
@@ -397,16 +401,25 @@ goto :eof
 :remove_git_credential
 call :print_step "Cleaning git credential config..."
 
-REM Check and remove credential helper
-for /f "tokens=*" %%a in ('git config --global "credential.https://github.com.helper" 2^>nul') do (
-    git config --global --unset-all "credential.https://github.com.helper" 2>nul
-    call :print_success "Removed credential.https://github.com.helper"
+REM Check and remove credential helper/username for all common hosts
+for %%h in ("https://github.com" "https://gitlab.com" "https://bitbucket.org" "https://dev.azure.com") do (
+    for /f "tokens=*" %%a in ('git config --global "credential.%%~h.helper" 2^>nul') do (
+        git config --global --unset-all "credential.%%~h.helper" 2>nul
+        call :print_success "Removed credential helper for %%~h"
+    )
+    for /f "tokens=*" %%a in ('git config --global "credential.%%~h.username" 2^>nul') do (
+        git config --global --unset-all "credential.%%~h.username" 2>nul
+        call :print_success "Removed credential username for %%~h"
+    )
 )
 
-REM Check and remove credential username
-for /f "tokens=*" %%a in ('git config --global "credential.https://github.com.username" 2^>nul') do (
-    git config --global --unset-all "credential.https://github.com.username" 2>nul
-    call :print_success "Removed credential.https://github.com.username"
+REM Global credential.helper if it references gcm
+for /f "tokens=*" %%a in ('git config --global credential.helper 2^>nul') do (
+    echo %%a | findstr /i "gcm" >nul
+    if !errorlevel!==0 (
+        git config --global --unset-all credential.helper 2>nul
+        call :print_success "Removed global credential.helper (gcm)"
+    )
 )
 goto :eof
 
@@ -489,7 +502,17 @@ call :remove_git_identity
 echo.
 call :remove_git_credential
 echo.
+call :remove_ssh_keys
+echo.
+call :remove_gpg_keys
+echo.
 call :remove_gcm_dir
+echo.
+call :remove_credential_store
+echo.
+call :remove_project_markers
+echo.
+call :remove_completions_and_temp
 echo.
 call :show_completion_nuclear
 goto :eof
@@ -497,30 +520,19 @@ goto :eof
 :remove_git_identity
 call :print_step "Removing git identity configuration..."
 
-for /f "tokens=*" %%a in ('git config --global user.name 2^>nul') do (
-    git config --global --unset-all user.name 2>nul
-    call :print_success "Unset git global user.name"
-)
-for /f "tokens=*" %%a in ('git config --global user.email 2^>nul') do (
-    git config --global --unset-all user.email 2>nul
-    call :print_success "Unset git global user.email"
-)
-for /f "tokens=*" %%a in ('git config --global user.signingkey 2^>nul') do (
-    git config --global --unset-all user.signingkey 2>nul
-    call :print_success "Unset git global user.signingkey"
-)
-for /f "tokens=*" %%a in ('git config --global commit.gpgsign 2^>nul') do (
-    git config --global --unset-all commit.gpgsign 2>nul
-    call :print_success "Unset git global commit.gpgsign"
+for %%k in (user.name user.email user.signingkey commit.gpgsign gpg.format gpg.program core.sshCommand tag.gpgsign tag.forceSignAnnotated) do (
+    for /f "tokens=*" %%a in ('git config --global %%k 2^>nul') do (
+        git config --global --unset-all %%k 2>nul
+        call :print_success "Unset git global %%k"
+    )
 )
 
 REM Clean local repo if inside one
 git rev-parse --is-inside-work-tree >nul 2>&1
 if !errorlevel!==0 (
-    git config --local --unset-all user.name 2>nul
-    git config --local --unset-all user.email 2>nul
-    git config --local --unset-all user.signingkey 2>nul
-    git config --local --unset-all commit.gpgsign 2>nul
+    for %%k in (user.name user.email user.signingkey commit.gpgsign gpg.format core.sshCommand) do (
+        git config --local --unset-all %%k 2>nul
+    )
     call :print_success "Cleaned git local identity"
     for /f "tokens=*" %%r in ('git rev-parse --show-toplevel 2^>nul') do (
         if exist "%%r\.gcm-profile" del "%%r\.gcm-profile" 2>nul
@@ -541,9 +553,14 @@ echo %BOLD%%WHITE%What was removed:%RESET%
 echo  * gcm binary (from all locations)
 echo  * PATH configuration
 echo  * Git global identity (user.name, user.email, signingkey, gpgsign)
-echo  * Git local identity and GCM markers
-echo  * Git credential config for github.com
+echo  * Git local identity and GCM markers (recursive scan)
+echo  * Git credential config for ALL hosts
+echo  * GCM-generated SSH keys
+echo  * GCM-generated GPG keys
 echo  * All profiles, tokens, config, backups, cache
+echo  * Windows Credential Manager entries
+echo  * Project markers (.gcm-profile, gcm-session)
+echo  * Temp files and completions
 call :print_separator "-"
 echo %BOLD%%WHITE%Final Steps:%RESET%
 echo  1. Restart your terminal/Command Prompt
@@ -552,4 +569,147 @@ call :print_separator "-"
 echo Thank you for using GCM!
 call :print_separator "="
 echo.
+goto :eof
+
+:remove_ssh_keys
+call :print_step "Removing GCM-generated SSH keys..."
+
+set "SSH_DIR=%USERPROFILE%\.ssh"
+set "GCM_DIR=%USERPROFILE%\.gcm"
+set "SSH_REMOVED=0"
+
+if not exist "%GCM_DIR%\profiles" goto :ssh_keys_done
+
+REM Scan profile names and remove matching SSH keys
+for %%f in ("%GCM_DIR%\profiles\*.yaml") do (
+    set "PROFILE_NAME=%%~nf"
+    for %%p in (id_ed25519 id_rsa id_ecdsa) do (
+        if exist "%SSH_DIR%\%%p_!PROFILE_NAME!" (
+            del "%SSH_DIR%\%%p_!PROFILE_NAME!" 2>nul
+            set /a SSH_REMOVED+=1
+        )
+        if exist "%SSH_DIR%\%%p_!PROFILE_NAME!.pub" (
+            del "%SSH_DIR%\%%p_!PROFILE_NAME!.pub" 2>nul
+            set /a SSH_REMOVED+=1
+        )
+    )
+)
+
+:ssh_keys_done
+if !SSH_REMOVED!==0 (
+    call :print_info "No GCM-generated SSH keys found"
+) else (
+    call :print_success "Removed !SSH_REMOVED! SSH key file(s)"
+)
+goto :eof
+
+:remove_gpg_keys
+call :print_step "Removing GCM-generated GPG keys..."
+
+where gpg >nul 2>&1
+if !errorlevel! neq 0 (
+    call :print_info "GPG not installed - skipping"
+    goto :eof
+)
+
+set "GCM_DIR=%USERPROFILE%\.gcm"
+if not exist "%GCM_DIR%\profiles" (
+    call :print_info "No GCM GPG key IDs found"
+    goto :eof
+)
+
+REM Extract key IDs from profile files and delete them
+for %%f in ("%GCM_DIR%\profiles\*.yaml") do (
+    for /f "tokens=2 delims=: " %%k in ('findstr /i "key_id" "%%f" 2^>nul') do (
+        set "KEY_ID=%%k"
+        set "KEY_ID=!KEY_ID:"=!"
+        set "KEY_ID=!KEY_ID:'=!"
+        if not "!KEY_ID!"=="" (
+            gpg --batch --yes --delete-secret-and-public-key "!KEY_ID!" 2>nul
+            if !errorlevel!==0 (
+                call :print_success "Deleted GPG key !KEY_ID!"
+            ) else (
+                call :print_warning "GPG key !KEY_ID! not found in keyring"
+            )
+        )
+    )
+)
+goto :eof
+
+:remove_credential_store
+call :print_step "Cleaning credential store entries..."
+
+set "CRED_CLEANED=0"
+
+REM Windows Credential Manager
+where cmdkey >nul 2>&1
+if !errorlevel!==0 (
+    cmdkey /delete:git:https://github.com 2>nul
+    if !errorlevel!==0 set "CRED_CLEANED=1"
+    cmdkey /delete:github.com 2>nul
+    if !errorlevel!==0 set "CRED_CLEANED=1"
+    cmdkey /delete:git:https://gitlab.com 2>nul
+    cmdkey /delete:git:https://bitbucket.org 2>nul
+)
+
+REM .git-credentials file
+if exist "%USERPROFILE%\.git-credentials" (
+    powershell -NoProfile -Command "Get-Content '%USERPROFILE%\.git-credentials' | Where-Object { $_ -notmatch 'github\.com|gitlab\.com' } | Set-Content '%USERPROFILE%\.git-credentials' -Force"
+    call :print_success "Cleaned .git-credentials"
+    set "CRED_CLEANED=1"
+)
+
+if !CRED_CLEANED!==1 (
+    call :print_success "Removed credential store entries"
+) else (
+    call :print_info "No credential store entries found"
+)
+goto :eof
+
+:remove_project_markers
+call :print_step "Scanning for .gcm-profile and gcm-session markers..."
+
+set "MARKERS_FOUND=0"
+
+for %%d in ("%USERPROFILE%\projects" "%USERPROFILE%\Projects" "%USERPROFILE%\dev" "%USERPROFILE%\Dev" "%USERPROFILE%\src" "%USERPROFILE%\work" "%USERPROFILE%\repos" "%USERPROFILE%\code") do (
+    if exist "%%~d" (
+        for /r "%%~d" %%f in (.gcm-profile) do (
+            if exist "%%f" (
+                del "%%f" 2>nul
+                set /a MARKERS_FOUND+=1
+            )
+        )
+        for /r "%%~d" %%f in (gcm-session) do (
+            if exist "%%f" (
+                del "%%f" 2>nul
+                set /a MARKERS_FOUND+=1
+            )
+        )
+    )
+)
+
+if !MARKERS_FOUND!==0 (
+    call :print_info "No project markers found"
+) else (
+    call :print_success "Removed !MARKERS_FOUND! project marker(s)"
+)
+goto :eof
+
+:remove_completions_and_temp
+call :print_step "Removing completions and temp files..."
+
+REM PowerShell completion modules
+if exist "%USERPROFILE%\Documents\PowerShell\Modules\GcmCompletion" (
+    rmdir /s /q "%USERPROFILE%\Documents\PowerShell\Modules\GcmCompletion" 2>nul
+    call :print_success "Removed PowerShell completion module"
+)
+if exist "%USERPROFILE%\Documents\WindowsPowerShell\Modules\GcmCompletion" (
+    rmdir /s /q "%USERPROFILE%\Documents\WindowsPowerShell\Modules\GcmCompletion" 2>nul
+    call :print_success "Removed legacy PowerShell completion module"
+)
+
+REM Temp files
+del /q "%TEMP%\gcm-*" 2>nul
+
+call :print_success "Cleaned temp files"
 goto :eof
