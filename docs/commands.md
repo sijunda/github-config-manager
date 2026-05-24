@@ -43,7 +43,7 @@ gcm quickstart   # alias
 2. Creating your first profile (name, email)
 3. SSH key generation
 4. GPG signing (optional)
-5. Provider authentication (GitHub/GitLab)
+5. Provider authentication (choose one provider for the profile)
 6. Activating your profile
 
 Perfect for first-time users. Run this once and you're fully set up.
@@ -61,7 +61,7 @@ gcm st           # alias
 
 **Aliases:** `gcm st`
 
-Shows: active profile, all profiles summary, GitHub/GitLab auth status, SSH keys, and any issues that need attention.
+Shows: active profile, all profiles summary, provider auth status, SSH keys, and any issues that need attention.
 
 ---
 
@@ -119,7 +119,7 @@ gcm profile create work --name "Jane" --email "jane@acme.example" --ssh-key ~/.s
 1. **Basic info** — name, email, editor
 2. **SSH key** — generate new key (Ed25519/RSA/ECDSA) or skip
 3. **GPG signing** — generate new GPG key or skip
-4. **Provider accounts** — set GitHub/GitLab usernames or skip
+4. **Provider account** — choose one provider for the profile, set its username, or skip
 
 **Validation:**
 - `--name` and `--email` are required unless `--interactive` is set
@@ -128,7 +128,7 @@ gcm profile create work --name "Jane" --email "jane@acme.example" --ssh-key ~/.s
 
 ### `gcm profile list`
 
-List all profiles with status, email, signing, and last used.
+List all profiles with status, email, provider, signing, and last used.
 
 ```bash
 gcm profile list
@@ -136,7 +136,7 @@ gcm profile ls        # alias
 gcm profile           # also runs list
 ```
 
-**Output columns:** Profile, Status (`active`, `default`, `active default`), Email, Signing (✓/✗), Last Used.
+**Output columns:** Profile, Status (`active`, `default`, `active default`), Email, Provider, Signing (✓/✗), Last Used.
 
 ### `gcm profile show <name>`
 
@@ -146,7 +146,7 @@ Display detailed information about a profile.
 gcm profile show work
 ```
 
-**Shows:** Git user/email/editor, SSH key path/type/fingerprint, GPG key ID, provider usernames, metadata (created, usage count).
+**Shows:** Git user/email/editor, SSH key path/type/fingerprint, GPG key ID, provider account, metadata (created, usage count).
 
 ### `gcm profile edit <name>`
 
@@ -235,7 +235,7 @@ gcm use work --dry-run       # preview changes, apply nothing
 8. Logs the activation to the audit log
 9. Verifies configured provider token validity (best-effort, warns if expired)
 
-> **Credential Isolation:** After switching, git clone/push/pull will only work with the active profile's configured provider accounts. Other profiles' credentials cannot bleed through.
+> **Credential Isolation:** After switching, git clone/push/pull will only work with the active profile's configured provider account. Other profiles' credentials cannot bleed through.
 
 **Scopes:**
 - **Session** (default, in a git repo) — writes a `.git/gcm-session` marker file for reliable detection, plus local git config
@@ -322,7 +322,7 @@ gcm ssh generate work -p "my-passphrase"       # with passphrase
 3. If a passphrase is given, encrypts the private key at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR)
 4. Updates the profile's SSH configuration automatically
 5. Prints the public key for easy copying
-6. If provider tokens are stored for this profile, offers to upload the key to each authenticated provider explicitly
+6. If a token is stored for this profile's provider, offers to upload the key to that provider
 
 ### `gcm ssh list`
 
@@ -341,11 +341,11 @@ gcm ssh             # also runs list
 Test the SSH connection to a configured provider using the profile's key.
 
 ```bash
-gcm ssh test work --provider github
-gcm ssh test work --provider gitlab
+gcm ssh test work-github --provider github
+gcm ssh test work-gitlab --provider gitlab
 ```
 
-Runs `ssh -T git@<provider-ssh-host>` with the profile's key. If `--provider` is omitted, GCM prompts you to choose one.
+Runs `ssh -T git@<provider-ssh-host>` with the profile's key. If `--provider` is omitted, GCM uses the profile's configured provider. If `--provider` is provided, it must match the profile provider.
 
 ### `gcm ssh copy <profile>`
 
@@ -358,12 +358,12 @@ gcm ssh copy work | pbcopy    # macOS: copy to clipboard
 
 ### `gcm ssh upload <profile>`
 
-Upload the profile's SSH public key to GitHub, GitLab, or another configured provider. Checks for duplicates before uploading.
+Upload the profile's SSH public key to its configured provider. Checks for duplicates before uploading.
 
 ```bash
-gcm ssh upload work --provider github
-gcm ssh upload work --provider gitlab
-gcm ssh upload work --provider gitlab --force    # skip duplicate check
+gcm ssh upload work-github --provider github
+gcm ssh upload work-gitlab --provider gitlab
+gcm ssh upload work-gitlab --provider gitlab --force    # skip duplicate check
 ```
 
 | Flag         | Short | Default | Description                    |
@@ -372,7 +372,7 @@ gcm ssh upload work --provider gitlab --force    # skip duplicate check
 | `--force`    | `-f`  | `false` | Skip duplicate check           |
 
 **What it does:**
-1. Resolves or prompts for the target provider
+1. Resolves the profile's configured provider
 2. Loads the stored provider token for the profile
 3. Lists existing SSH keys on that provider and compares by key material
 4. If the key already exists, reports "already uploaded" and exits
@@ -395,7 +395,7 @@ gcm gpg generate work
 The profile must already have `user.name` and `user.email` set.
 
 After generation, the profile is automatically updated with the GPG key ID and `commit.gpgsign = true`.
-If provider tokens are stored for this profile, GCM will offer to upload the GPG public key to each authenticated provider explicitly so commits can show as verified there.
+If a token is stored for this profile's provider, GCM will offer to upload the GPG public key there so commits can show as verified.
 
 ### `gcm gpg list`
 
@@ -441,12 +441,12 @@ Performs a test signature using the profile's GPG key ID.
 
 ### `gcm gpg upload <profile>`
 
-Upload the profile's GPG public key to GitHub, GitLab, or another configured provider for commit verification. Checks for duplicates before uploading.
+Upload the profile's GPG public key to its configured provider for commit verification. Checks for duplicates before uploading.
 
 ```bash
-gcm gpg upload work --provider github
-gcm gpg upload work --provider gitlab
-gcm gpg upload work --provider gitlab --force    # skip duplicate check
+gcm gpg upload work-github --provider github
+gcm gpg upload work-gitlab --provider gitlab
+gcm gpg upload work-gitlab --provider gitlab --force    # skip duplicate check
 ```
 
 | Flag         | Short | Default | Description                    |
@@ -455,7 +455,7 @@ gcm gpg upload work --provider gitlab --force    # skip duplicate check
 | `--force`    | `-f`  | `false` | Skip duplicate check           |
 
 **What it does:**
-1. Resolves or prompts for the target provider
+1. Resolves the profile's configured provider
 2. Loads the stored provider token for the profile
 3. Lists existing GPG keys on that provider and compares by key ID
 4. If the key already exists, reports "already uploaded" and exits
@@ -474,8 +474,8 @@ Manage GitHub integration. Supports multiple authentication methods.
 Authenticate with a Personal Access Token (PAT). Useful for CI/CD, headless environments, or fine-grained token control.
 
 ```bash
-gcm github login work                          # interactive (masked input)
-echo "$GH_TOKEN" | gcm github login work       # piped from env/script
+gcm github login work-github                          # interactive (masked input)
+echo "$GH_TOKEN" | gcm github login work-github       # piped from env/script
 ```
 
 **Requirements:** Generate a token at https://github.com/settings/tokens with scopes: `repo`, `admin:public_key`, `admin:gpg_key`.
@@ -484,7 +484,7 @@ echo "$GH_TOKEN" | gcm github login work       # piped from env/script
 1. Reads token from interactive input or stdin pipe
 2. Verifies the token against the GitHub API
 3. Encrypts and stores the token
-4. Updates the profile with your GitHub username
+4. Updates the profile so GitHub is its single configured provider
 5. **If this is the active profile**, git credentials are stored for clone/push/pull
 
 > **Note:** Git credentials are only updated if the profile being logged in is the currently active one. Logging into a non-active profile saves the token but does not affect git operations until you switch to that profile with `gcm use`.
@@ -494,7 +494,7 @@ echo "$GH_TOKEN" | gcm github login work       # piped from env/script
 Authenticate with GitHub using the OAuth device flow (interactive, browser-based).
 
 ```bash
-gcm github login-oauth work
+gcm github login-oauth work-github
 ```
 
 **Flow:**
@@ -503,7 +503,7 @@ gcm github login-oauth work
 3. You open the URL in your browser and enter the code
 4. GCM polls until you approve (up to 15 minutes)
 5. Token is encrypted and stored in `~/.gcm/tokens/`
-6. Profile is updated with your GitHub username
+6. Profile is updated so GitHub is its single configured provider
 7. **If this is the active profile**, git credentials are stored for clone/push/pull
 
 ### `gcm github login-gh <profile>`
@@ -511,20 +511,20 @@ gcm github login-oauth work
 Import authentication from the GitHub CLI (`gh`). Requires `gh` to be installed and authenticated.
 
 ```bash
-gcm github login-gh work
+gcm github login-gh work-github
 ```
 
 **What it does:**
 1. Runs `gh auth token` to retrieve your existing token
 2. Verifies the token against the GitHub API
 3. Encrypts and stores it in GCM
-4. Updates the profile with your GitHub username
+4. Updates the profile so GitHub is its single configured provider
 
 **Note:** Requires the GitHub CLI (https://cli.github.com) to be installed and logged in (`gh auth login`).
 
 ### `gcm github status`
 
-Show authentication status for all profiles.
+Show authentication status for GitHub-scoped profiles.
 
 ```bash
 gcm github status
@@ -537,8 +537,8 @@ gcm github status
 Remove the stored GitHub token for a profile and clear git credentials.
 
 ```bash
-gcm github logout work                         # remove token + clear git credentials
-gcm github logout work --clear-credentials=false  # only remove GCM token
+gcm github logout work-github                         # remove token + clear git credentials
+gcm github logout work-github --clear-credentials=false  # only remove GCM token
 ```
 
 | Flag                  | Short | Default | Description                                                 |
@@ -558,7 +558,7 @@ gcm github logout work --clear-credentials=false  # only remove GCM token
 Verify that the stored token is still valid.
 
 ```bash
-gcm github verify work
+gcm github verify work-github
 ```
 
 ### `gcm github user <profile>`
@@ -566,7 +566,7 @@ gcm github verify work
 Show GitHub user information for the authenticated profile.
 
 ```bash
-gcm github user work
+gcm github user work-github
 ```
 
 **Shows:** Login, Name, Email, Company, Location, Public repos, Profile URL.
@@ -584,8 +584,8 @@ Manage GitLab integration. The current GitLab MVP supports Personal Access Token
 Authenticate with a GitLab Personal Access Token (PAT).
 
 ```bash
-gcm gitlab login work
-echo "$GITLAB_TOKEN" | gcm gitlab login work
+gcm gitlab login work-gitlab
+echo "$GITLAB_TOKEN" | gcm gitlab login work-gitlab
 ```
 
 **Recommended scopes:** `api`, `read_user`, `read_repository`, `write_repository`.
@@ -595,14 +595,14 @@ For self-managed GitLab, configure `providers.gitlab.api_url`, `providers.gitlab
 **What it does:**
 1. Reads token from interactive input or stdin pipe
 2. Verifies the token against the configured GitLab API
-3. Stores a provider-aware token under the active profile/provider/host key
-4. Updates `profile.providers.gitlab.username`
+3. Stores a provider-aware token under the profile/provider/host key
+4. Updates the profile so GitLab is its single configured provider
 5. If this is the active profile, updates Git credentials for the configured GitLab host
 6. During interactive login, offers to upload SSH/GPG keys when available
 
 ### `gcm gitlab status`
 
-Show GitLab authentication status for all profiles.
+Show authentication status for GitLab-scoped profiles.
 
 ```bash
 gcm gitlab status
@@ -613,8 +613,8 @@ gcm gitlab status
 Remove the stored GitLab token for a profile and optionally clear active Git credentials.
 
 ```bash
-gcm gitlab logout work
-gcm gitlab logout work --clear-credentials=false
+gcm gitlab logout work-gitlab
+gcm gitlab logout work-gitlab --clear-credentials=false
 ```
 
 ### `gcm gitlab verify <profile>`
@@ -622,7 +622,7 @@ gcm gitlab logout work --clear-credentials=false
 Verify that the stored GitLab token is still valid.
 
 ```bash
-gcm gitlab verify work
+gcm gitlab verify work-gitlab
 ```
 
 ### `gcm gitlab user <profile>`
@@ -630,7 +630,7 @@ gcm gitlab verify work
 Show GitLab user information for the authenticated profile.
 
 ```bash
-gcm gitlab user work
+gcm gitlab user work-gitlab
 ```
 
 ---

@@ -73,6 +73,17 @@ func quickVerifyGitLabToken(token providerpkg.TokenSet, apiURL string) error {
 	return nil
 }
 
+func quickVerifyProviderToken(def providerpkg.Definition, token providerpkg.TokenSet) error {
+	switch def.ID {
+	case providerpkg.GitHubID:
+		return quickVerifyToken(token.AccessToken, def.APIURL)
+	case providerpkg.GitLabID:
+		return quickVerifyGitLabToken(token, def.APIURL)
+	default:
+		return nil
+	}
+}
+
 // padRight pads a string to the given visible width with spaces.
 func padRight(s string, width int) string {
 	n := utf8.RuneCountInString(s)
@@ -88,7 +99,7 @@ func newStatusCmd() *cobra.Command {
 		Short: "Show a quick overview of your GCM setup",
 		Long: `Display a dashboard of your current GCM state at a glance.
 
-Shows: active profile, all profiles summary, GitHub auth status,
+Shows: active profile, all profiles summary, provider auth status,
 SSH keys, and any issues that need attention.`,
 		Aliases: []string{"st"},
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -103,6 +114,12 @@ func runStatus() error {
 
 	profiles, _ := ctr.ProfileManager.List()
 	currentName, scope, _ := ctr.ProfileSwitcher.Current()
+	migrationIssues := make([]string, 0)
+	for _, p := range profiles {
+		if _, err := migrateProfileSSHKeyPathToProvider(p.Name, p); err != nil {
+			migrationIssues = append(migrationIssues, fmt.Sprintf("SSH key rename for %q failed: %v", p.Name, err))
+		}
+	}
 
 	// Calculate max profile name length for alignment
 	maxNameLen := 0
@@ -162,52 +179,82 @@ func runStatus() error {
 	ui.Blank()
 	ui.Divider()
 
-	// ─── GitHub Auth ───
+	// ─── Provider Auth ───
 	ui.Blank()
-	ui.Print("  %s", ui.Bold("GitHub Auth"))
+	ui.Print("  %s", ui.Bold("Provider Auth"))
 
 	var issues []string
+	issues = append(issues, migrationIssues...)
 
-	// Calculate max username length for alignment
-	maxUserLen := 0
 	if len(profiles) == 0 {
 		ui.Print("    %s No profiles configured", ui.Dim("—"))
 	} else {
-		// Pre-compute usernames for alignment
-		type ghEntry struct {
+		type providerAuthEntry struct {
 			icon     string
 			name     string
+			provider string
 			username string
 			status   string
 			hint     string
 		}
-		entries := make([]ghEntry, 0, len(profiles))
+		entries := make([]providerAuthEntry, 0, len(profiles))
+		maxProviderLen := 0
+		maxUserLen := 0
 
 		for _, p := range profiles {
-			token, loadErr := ctr.GitHubClient.LoadToken(p.Name)
-			if loadErr != nil || token == "" {
-				e := ghEntry{
-					icon:   ui.Red(ui.IconError),
-					name:   p.Name,
-					status: ui.Dim("not configured"),
-					hint:   fmt.Sprintf("gcm github login %s", p.Name),
-				}
-				entries = append(entries, e)
+			if profileHasMultipleProviders(p) {
+				entries = append(entries, providerAuthEntry{
+					icon:     ui.Yellow(ui.IconWarning),
+					name:     p.Name,
+					provider: "multiple",
+					status:   ui.Yellow("choose one provider"),
+					hint:     fmt.Sprintf("gcm profile edit %s -i", p.Name),
+				})
 				continue
 			}
 
-			// Quick verification (context-bounded, no shared state mutation)
+			def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper)
+			if !ok {
+				entries = append(entries, providerAuthEntry{
+					icon:     ui.Yellow(ui.IconWarning),
+					name:     p.Name,
+					provider: "—",
+					status:   ui.Dim("no provider"),
+					hint:     fmt.Sprintf("gcm profile edit %s -i", p.Name),
+				})
+				continue
+			}
+
+			account := providerAccountForProfile(p, def.ID)
+			providerName := def.DisplayName
+			if len(providerName) > maxProviderLen {
+				maxProviderLen = len(providerName)
+			}
+
 			username := ""
-			if p.GitHub != nil && p.GitHub.Username != "" {
-				username = "@" + p.GitHub.Username
+			if account.Username != "" {
+				username = "@" + account.Username
 			}
 			if len(username) > maxUserLen {
 				maxUserLen = len(username)
 			}
 
+			token, loadErr := loadProviderToken(p.Name, def, p)
+			if loadErr != nil || token.AccessToken == "" {
+				entries = append(entries, providerAuthEntry{
+					icon:     ui.Red(ui.IconError),
+					name:     p.Name,
+					provider: providerName,
+					username: username,
+					status:   ui.Dim("not authenticated"),
+					hint:     fmt.Sprintf("gcm %s login %s", def.ID, p.Name),
+				})
+				continue
+			}
+
 			status := ui.Green("valid")
 			icon := ui.Green(ui.IconSuccess)
-			if verifyErr := quickVerifyToken(token, ctr.Config.GitHub.APIURL); verifyErr != nil {
+			if verifyErr := quickVerifyProviderToken(def, token); verifyErr != nil {
 				if strings.Contains(verifyErr.Error(), "context deadline exceeded") ||
 					strings.Contains(verifyErr.Error(), "timeout") {
 					status = ui.Yellow("timeout")
@@ -215,101 +262,34 @@ func runStatus() error {
 				} else {
 					status = ui.Red("expired/invalid")
 					icon = ui.Red(ui.IconError)
-					issues = append(issues, fmt.Sprintf("Token for %q expired — run: gcm github login %s", p.Name, p.Name))
+					issues = append(issues, fmt.Sprintf("%s token for %q expired — run: gcm %s login %s", def.DisplayName, p.Name, def.ID, p.Name))
 				}
 			}
 
-			entries = append(entries, ghEntry{
+			entries = append(entries, providerAuthEntry{
 				icon:     icon,
 				name:     p.Name,
+				provider: providerName,
 				username: username,
 				status:   status,
 			})
 		}
 
+		if maxProviderLen < 10 {
+			maxProviderLen = 10
+		}
 		if maxUserLen < 12 {
 			maxUserLen = 12
 		}
 
 		for _, e := range entries {
+			providerName := padRight(e.provider, maxProviderLen)
+			username := padRight(e.username, maxUserLen)
 			if e.hint != "" {
-				ui.Print("    %s %-*s %s %s", e.icon, maxNameLen, e.name, ui.Dim(padRight("—", maxUserLen)), e.status)
+				ui.Print("    %s %-*s %s %s %s", e.icon, maxNameLen, e.name, providerName, ui.Dim(username), e.status)
 				ui.Print("      %s %s", ui.Dim("└─"), ui.Cyan(e.hint))
 			} else {
-				ui.Print("    %s %-*s %s %s", e.icon, maxNameLen, e.name, ui.Dim(padRight(e.username, maxUserLen)), e.status)
-			}
-		}
-	}
-
-	ui.Blank()
-	ui.Divider()
-
-	// ─── GitLab Auth ───
-	ui.Blank()
-	ui.Print("  %s", ui.Bold("GitLab Auth"))
-
-	gitlabDef, gitlabConfigured := ctr.ProviderRegistry.Get(providerpkg.GitLabID)
-	if !gitlabConfigured {
-		ui.Print("    %s GitLab provider not configured", ui.Dim("—"))
-	} else if len(profiles) == 0 {
-		ui.Print("    %s No profiles configured", ui.Dim("—"))
-	} else {
-		type glEntry struct {
-			icon     string
-			name     string
-			username string
-			status   string
-			hint     string
-		}
-		entries := make([]glEntry, 0, len(profiles))
-		maxGitLabUserLen := 0
-
-		for _, p := range profiles {
-			token, loadErr := loadProviderToken(p.Name, gitlabDef, p)
-			if loadErr != nil || token.AccessToken == "" {
-				entries = append(entries, glEntry{
-					icon:   ui.Red(ui.IconError),
-					name:   p.Name,
-					status: ui.Dim("not configured"),
-					hint:   fmt.Sprintf("gcm gitlab login %s", p.Name),
-				})
-				continue
-			}
-
-			account := providerAccountForProfile(p, providerpkg.GitLabID)
-			username := ""
-			if account.Username != "" {
-				username = "@" + account.Username
-			}
-			if len(username) > maxGitLabUserLen {
-				maxGitLabUserLen = len(username)
-			}
-
-			status := ui.Green("valid")
-			icon := ui.Green(ui.IconSuccess)
-			if verifyErr := quickVerifyGitLabToken(token, gitlabDef.APIURL); verifyErr != nil {
-				if strings.Contains(verifyErr.Error(), "context deadline exceeded") || strings.Contains(verifyErr.Error(), "timeout") {
-					status = ui.Yellow("timeout")
-					icon = ui.Yellow(ui.IconWarning)
-				} else {
-					status = ui.Red("expired/invalid")
-					icon = ui.Red(ui.IconError)
-					issues = append(issues, fmt.Sprintf("GitLab token for %q expired — run: gcm gitlab login %s", p.Name, p.Name))
-				}
-			}
-
-			entries = append(entries, glEntry{icon: icon, name: p.Name, username: username, status: status})
-		}
-
-		if maxGitLabUserLen < 12 {
-			maxGitLabUserLen = 12
-		}
-		for _, e := range entries {
-			if e.hint != "" {
-				ui.Print("    %s %-*s %s %s", e.icon, maxNameLen, e.name, ui.Dim(padRight("—", maxGitLabUserLen)), e.status)
-				ui.Print("      %s %s", ui.Dim("└─"), ui.Cyan(e.hint))
-			} else {
-				ui.Print("    %s %-*s %s %s", e.icon, maxNameLen, e.name, ui.Dim(padRight(e.username, maxGitLabUserLen)), e.status)
+				ui.Print("    %s %-*s %s %s %s", e.icon, maxNameLen, e.name, providerName, ui.Dim(username), e.status)
 			}
 		}
 	}

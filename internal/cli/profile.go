@@ -219,7 +219,7 @@ func profileCreateInteractive(profileName string, fromTemplate string) error {
 		SSH: sshConfig, GPG: gpgConfig,
 	}
 
-	ui.SubHeader("Step 4/4: Provider Accounts (Optional)")
+	ui.SubHeader("Step 4/4: Provider Account (Optional)")
 	if err := promptProviderAccountUsernames(p); err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func profileListRun(_ *cobra.Command, _ []string) error {
 
 	currentName, _, _ := ctr.ProfileSwitcher.Current()
 
-	headers := []string{"Profile", "Status", "Email", "Signing", "Last Used"}
+	headers := []string{"Profile", "Status", "Email", "Provider", "Signing", "Last Used"}
 	var rows [][]string
 
 	for _, p := range profiles {
@@ -296,7 +296,14 @@ func profileListRun(_ *cobra.Command, _ []string) error {
 			lastUsed = formatTimeAgo(*p.Metadata.LastUsed)
 		}
 
-		rows = append(rows, []string{p.Name, status, p.Git.User.Email, signing, lastUsed})
+		providerName := ui.Dim("—")
+		if profileHasMultipleProviders(p) {
+			providerName = ui.Yellow("multiple")
+		} else if def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper); ok {
+			providerName = def.DisplayName
+		}
+
+		rows = append(rows, []string{p.Name, status, p.Git.User.Email, providerName, signing, lastUsed})
 	}
 
 	ui.SimpleTable(headers, rows)
@@ -463,7 +470,7 @@ func profileEditInteractive(p *profile.Profile) error {
 		return err
 	}
 
-	ui.SubHeader("Provider Accounts")
+	ui.SubHeader("Provider Account")
 	if err := promptProviderAccountUsernames(p); err != nil {
 		return err
 	}
@@ -737,45 +744,73 @@ func promptProviderAccountUsernames(p *profile.Profile) error {
 		ui.Info("No providers are configured yet.")
 		return nil
 	}
+
+	options := []string{"Skip provider account"}
+	byOption := make(map[string]providerpkg.Definition, len(defs))
 	for _, def := range defs {
-		account := providerAccountForProfile(p, def.ID)
-		prompt := fmt.Sprintf("%s username (leave empty to skip):", def.DisplayName)
-		if account.Username != "" {
-			prompt = fmt.Sprintf("%s username [%s]:", def.DisplayName, account.Username)
-		}
-		username, err := ui.AskString(prompt, account.Username)
-		if err != nil {
-			return err
-		}
-		if username == "" {
-			clearProfileProviderAccount(p, def.ID)
-			continue
-		}
-		setProfileProviderAccount(p, def.ID, username, account.AuthMethod)
+		option := providerOption(def)
+		options = append(options, option)
+		byOption[option] = def
 	}
+
+	currentLabel := "none"
+	if currentDef, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper); ok {
+		currentLabel = currentDef.DisplayName
+	}
+	choice, err := ui.AskSelect(fmt.Sprintf("Provider for this profile (current: %s):", currentLabel), options)
+	if err != nil {
+		return err
+	}
+	if choice == "Skip provider account" {
+		clearAllProfileProviderAccounts(p)
+		return nil
+	}
+
+	def := byOption[choice]
+	account := providerAccountForProfile(p, def.ID)
+	prompt := fmt.Sprintf("%s username (leave empty if unknown):", def.DisplayName)
+	if account.Username != "" {
+		prompt = fmt.Sprintf("%s username [%s]:", def.DisplayName, account.Username)
+	}
+	username, err := ui.AskString(prompt, account.Username)
+	if err != nil {
+		return err
+	}
+	setProfileProviderAccount(p, def.ID, username, account.AuthMethod)
 	return nil
 }
 
 func printProfileProviderAccounts(p *profile.Profile) {
-	printed := false
-	for _, def := range providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper) {
-		account := providerAccountForProfile(p, def.ID)
-		if account.Username == "" {
-			continue
-		}
-		if !printed {
-			ui.SubHeader("Provider Accounts")
-			printed = true
-		}
-		ui.Detail(def.DisplayName, account.Username)
+	if profileHasMultipleProviders(p) {
+		ui.SubHeader("Provider Account")
+		ui.Warning("Profile has multiple provider accounts. Run: gcm profile edit %s -i", p.Name)
+		return
+	}
+	def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper)
+	if !ok {
+		return
+	}
+	account := providerAccountForProfile(p, def.ID)
+	ui.SubHeader("Provider Account")
+	ui.Detail("Provider", def.DisplayName)
+	if account.Username != "" {
+		ui.Detail("Username", account.Username)
 	}
 }
 
 func printProfileProviderAccountSummary(p *profile.Profile) {
-	for _, def := range providerDefinitionsWithCapability(providerpkg.CapabilityCredentialHelper) {
-		account := providerAccountForProfile(p, def.ID)
-		if account.Username != "" {
-			ui.Detail(def.DisplayName, account.Username)
-		}
+	if profileHasMultipleProviders(p) {
+		ui.Detail("Provider", ui.Yellow("multiple"))
+		return
 	}
+	def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper)
+	if !ok {
+		return
+	}
+	account := providerAccountForProfile(p, def.ID)
+	providerText := def.DisplayName
+	if account.Username != "" {
+		providerText = fmt.Sprintf("%s (%s)", def.DisplayName, account.Username)
+	}
+	ui.Detail("Provider", providerText)
 }

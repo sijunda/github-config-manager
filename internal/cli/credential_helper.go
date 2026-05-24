@@ -95,6 +95,9 @@ func credentialHelperGet(_ *cobra.Command, _ []string) error {
 	if err != nil || p == nil {
 		return nil
 	}
+	if !profileUsesProvider(p, def.ID) {
+		return nil
+	}
 
 	// Load token for this profile/provider from GCM's encrypted store.
 	token, err := loadProviderToken(currentProfile, def, p)

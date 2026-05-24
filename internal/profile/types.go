@@ -7,11 +7,12 @@ import (
 
 // Profile represents a complete Git identity configuration.
 type Profile struct {
-	Name      string                           `yaml:"name" json:"name"`
-	Git       GitConfig                        `yaml:"git" json:"git"`
-	SSH       *SSHConfig                       `yaml:"ssh,omitempty" json:"ssh,omitempty"`
-	GPG       *GPGConfig                       `yaml:"gpg,omitempty" json:"gpg,omitempty"`
-	GitHub    *GitHubConfig                    `yaml:"github,omitempty" json:"github,omitempty"`
+	Name   string        `yaml:"name" json:"name"`
+	Git    GitConfig     `yaml:"git" json:"git"`
+	SSH    *SSHConfig    `yaml:"ssh,omitempty" json:"ssh,omitempty"`
+	GPG    *GPGConfig    `yaml:"gpg,omitempty" json:"gpg,omitempty"`
+	GitHub *GitHubConfig `yaml:"github,omitempty" json:"github,omitempty"`
+	// Providers stores the single provider account selected for this profile.
 	Providers map[string]ProviderAccountConfig `yaml:"providers,omitempty" json:"providers,omitempty"`
 	Metadata  Metadata                         `yaml:"metadata" json:"metadata"`
 }

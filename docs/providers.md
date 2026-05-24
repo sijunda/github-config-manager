@@ -1,6 +1,6 @@
 # Provider Integrations
 
-GCM supports Git hosting providers through a provider-aware architecture. GitHub remains backward compatible, and GitLab is available as the first non-GitHub provider. Bitbucket support should be added by implementing the same provider contracts instead of adding provider-specific branching in CLI commands.
+GCM supports Git hosting providers through a provider-aware architecture. GitHub remains backward compatible, and GitLab is available as the first non-GitHub provider. Each profile is scoped to exactly one provider, so a GitHub identity and a GitLab identity should be modeled as separate profiles. Bitbucket support should be added by implementing the same provider contracts instead of adding provider-specific branching in CLI commands.
 
 ---
 
@@ -74,10 +74,10 @@ providers:
 
 ## Profile Accounts
 
-Profiles can keep provider-specific account metadata under `providers`.
+Profiles keep provider-specific account metadata under `providers`. A profile must contain at most one provider entry.
 
 ```yaml
-name: work
+name: work-github
 git:
   user:
     name: Jane Doe
@@ -88,6 +88,18 @@ providers:
     username: jane-gh
     auth_method: pat
     upload_keys: true
+```
+
+Use a separate profile for GitLab:
+
+```yaml
+name: work-gitlab
+git:
+  user:
+    name: Jane Doe
+    email: jane@company.example
+
+providers:
   gitlab:
     username: jane-gl
     auth_method: pat
@@ -100,7 +112,7 @@ The legacy `github:` profile block is still supported and is mapped into the Git
 
 ## Token Storage
 
-Provider-aware token keys include profile, provider, host, and optional account. This prevents a `work` GitHub token and a `work` GitLab token from colliding.
+Provider-aware token keys include profile, provider, host, and optional account. This prevents provider tokens from colliding across separate provider-scoped profiles and hosts.
 
 The structured token payload can hold PATs today and OAuth refresh-token metadata later:
 
@@ -124,8 +136,9 @@ Backward compatibility: existing GitHub tokens stored under the old profile-only
 1. Git invokes `gcm credential-helper get` with `protocol`, `host`, and optional `path`.
 2. GCM resolves `host` through the provider registry.
 3. GCM reads the active profile.
-4. GCM loads the provider-aware token for profile/provider/host.
-5. GCM returns provider-specific Git credentials.
+4. GCM verifies that the resolved provider matches the active profile's selected provider.
+5. GCM loads the provider-aware token for profile/provider/host.
+6. GCM returns provider-specific Git credentials.
 
 Provider username strategy:
 

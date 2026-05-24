@@ -144,10 +144,13 @@ func runSetup(ctx context.Context) error {
 	}
 
 	if genSSH {
+		p, _ := ctr.ProfileManager.Get(profileName)
+		keyProfileName := sshKeyProfileName(profileName, p)
+
 		sp := ui.NewSpinner("Generating ed25519 SSH key...")
 		sp.Start()
 		keyInfo, genErr := ctr.SSHManager.Generate(ssh.GenerateOptions{
-			Profile: profileName,
+			Profile: keyProfileName,
 			KeyType: "ed25519",
 		})
 		if genErr != nil {
@@ -161,7 +164,6 @@ func runSetup(ctx context.Context) error {
 				map[string]string{"type": keyInfo.Type, "path": keyInfo.Path}, nil)
 
 			// Update profile with SSH info
-			p, _ := ctr.ProfileManager.Get(profileName)
 			if p != nil {
 				p.SSH = &profile.SSHConfig{
 					KeyPath:     keyInfo.Path,
@@ -330,29 +332,28 @@ func runSetupProviderAuthentication(ctx context.Context, profileName string) err
 		options = append(options, option)
 		byOption[option] = def
 	}
-	selected, err := ui.AskMultiSelect("Select providers to authenticate:", options)
+	options = append([]string{"Skip provider authentication"}, options...)
+	selected, err := ui.AskSelect("Provider for this profile:", options)
 	if err != nil {
 		return err
 	}
-	if len(selected) == 0 {
+	if selected == "Skip provider authentication" {
 		ui.Info("Skipped provider authentication")
 		return nil
 	}
 
-	for _, option := range selected {
-		def := byOption[option]
-		switch def.ID {
-		case providerpkg.GitHubID:
-			if err := runSetupGitHubAuthentication(ctx, profileName); err != nil {
-				return err
-			}
-		case providerpkg.GitLabID:
-			if err := runSetupGitLabAuthentication(ctx, profileName, def); err != nil {
-				return err
-			}
-		default:
-			ui.Warning("Provider %s is configured but not implemented yet", def.DisplayName)
+	def := byOption[selected]
+	switch def.ID {
+	case providerpkg.GitHubID:
+		if err := runSetupGitHubAuthentication(ctx, profileName); err != nil {
+			return err
 		}
+	case providerpkg.GitLabID:
+		if err := runSetupGitLabAuthentication(ctx, profileName, def); err != nil {
+			return err
+		}
+	default:
+		ui.Warning("Provider %s is configured but not implemented yet", def.DisplayName)
 	}
 
 	return nil
@@ -471,12 +472,14 @@ func runSetupGitLabAuthentication(ctx context.Context, profileName string, def p
 	}
 
 	p, _ := ctr.ProfileManager.Get(profileName)
+	if p != nil {
+		setProfileProviderAccount(p, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
+	}
 	if saveErr := saveProviderToken(profileName, def, p, tokenSet); saveErr != nil {
 		ui.Error("Could not save GitLab token: %v", saveErr)
 		return nil
 	}
 	if p != nil {
-		setProfileProviderAccount(p, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
 		_ = ctr.ProfileManager.Update(p)
 	}
 	ui.Success("Authenticated with GitLab as @%s", user.Username)

@@ -15,14 +15,15 @@
 
 ---
 
-**GCM** is a CLI tool for managing multiple Git identities, SSH keys, GPG keys, and GitHub/GitLab accounts. Switch between work, personal, and client profiles instantly.
+**GCM** is a CLI tool for managing multiple provider-scoped Git identities, SSH keys, GPG keys, and GitHub/GitLab accounts. Switch between work, personal, and client profiles instantly.
 
 ## Features
 
 - 🎯 **Profile Management** — Create, edit, and switch between Git identities
-- 🔑 **SSH Key Management** — Generate and manage SSH keys per profile (auto-upload to GitHub)
-- 🔐 **GPG Signing** — Generate GPG keys and enable commit signing (auto-upload to GitHub)
-- 🐙 **GitHub Integration** — OAuth login, auto-upload SSH/GPG keys via API
+- 🔑 **SSH Key Management** — Generate and manage SSH keys per profile (auto-upload to the profile provider)
+- 🔐 **GPG Signing** — Generate GPG keys and enable commit signing (auto-upload to the profile provider)
+- 🐙 **GitHub Integration** — OAuth login, token verification, SSH/GPG key upload via API
+- 🦊 **GitLab Integration** — PAT login, token verification, SSH/GPG key upload via API
 - 🛡️ **Credential Isolation** — Git credentials are pinned per profile; no bleed between accounts. Built-in credential helper is immune to external logout (VS Code, browser, etc.)
 - 🐚 **Shell Integration** — Auto-switch profiles on `cd` (bash, zsh, fish, powershell)
 - 📋 **Templates** — Share configuration standards across teams

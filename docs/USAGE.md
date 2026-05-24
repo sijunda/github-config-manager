@@ -255,7 +255,7 @@ gcm profile create oss    -i
 gcm profile create anon   -i
 ```
 
-In every case, one profile = one full Git identity (name, email, SSH key, GPG key, GitHub token). After creating them, pin each repo tree with `gcm use <name> --local` once and they will auto-activate on `cd`.
+In every case, one profile = one full Git identity (name, email, SSH key, GPG key, provider, and provider token). Use separate profiles for GitHub and GitLab accounts. After creating them, pin each repo tree with `gcm use <name> --local` once and they will auto-activate on `cd`.
 
 ### 5.5 Renaming a profile
 

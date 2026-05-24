@@ -51,13 +51,15 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
 
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				ui.Error("profile %q not found", profileName)
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create " + profileName + " -i")
 				return nil
 			}
+			keyProfileName := sshKeyProfileName(profileName, p)
 
 			if cmd.Flags().Changed("passphrase") && passphrase != "" {
 				ui.Warning("Passphrase provided via --passphrase flag may appear in shell history.")
@@ -68,7 +70,7 @@ Examples:
 			sp.Start()
 
 			keyInfo, err := ctr.SSHManager.Generate(ssh.GenerateOptions{
-				Profile:    profileName,
+				Profile:    keyProfileName,
 				KeyType:    keyType,
 				Bits:       bits,
 				Comment:    comment,
@@ -94,7 +96,6 @@ Examples:
 			ui.Print(keyInfo.PublicKey)
 
 			// Update profile if it exists
-			p, _ := ctr.ProfileManager.Get(profileName)
 			if p != nil {
 				p.SSH = &profile.SSHConfig{
 					KeyPath:     keyInfo.Path,
@@ -170,8 +171,8 @@ func newSSHTestCmd() *cobra.Command {
 		Long: `Test SSH authentication for a profile against a configured provider host.
 
 Examples:
-  gcm ssh test work --provider github
-  gcm ssh test work --provider gitlab`,
+	gcm ssh test work-github --provider github
+	gcm ssh test work-gitlab --provider gitlab`,
 		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			p, err := ctr.ProfileManager.Get(args[0])
@@ -188,7 +189,7 @@ Examples:
 				return nil
 			}
 
-			def, err := selectProviderWithCapability(providerName, providerpkg.CapabilitySSHKeys, "Test SSH connection to which provider?")
+			def, err := selectProfileProviderWithCapability(args[0], p, providerName, providerpkg.CapabilitySSHKeys)
 			if err != nil {
 				return err
 			}
@@ -257,9 +258,9 @@ func newSSHUploadCmd() *cobra.Command {
 Checks for duplicates before uploading. Use --force to skip the check.
 
 Examples:
-	  gcm ssh upload work --provider github
-	  gcm ssh upload work --provider gitlab
-	  gcm ssh upload work --provider gitlab --force`,
+	  gcm ssh upload work-github --provider github
+	  gcm ssh upload work-gitlab --provider gitlab
+	  gcm ssh upload work-gitlab --provider gitlab --force`,
 		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -276,7 +277,7 @@ Examples:
 				return nil
 			}
 
-			def, err := selectProviderWithCapability(providerName, providerpkg.CapabilitySSHKeys, "Upload SSH key to which provider?")
+			def, err := selectProfileProviderWithCapability(profileName, p, providerName, providerpkg.CapabilitySSHKeys)
 			if err != nil {
 				return err
 			}

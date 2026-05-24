@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"git-config-manager/internal/profile"
@@ -28,10 +30,9 @@ func providerAccountForProfile(p *profile.Profile, id providerpkg.ProviderID) pr
 }
 
 func setProfileProviderAccount(p *profile.Profile, id providerpkg.ProviderID, username, authMethod string) {
-	if p.Providers == nil {
-		p.Providers = make(map[string]profile.ProviderAccountConfig)
-	}
-	account := p.Providers[string(id)]
+	previous := providerAccountForProfile(p, id)
+	p.Providers = make(map[string]profile.ProviderAccountConfig)
+	account := previous
 	account.Username = username
 	account.AuthMethod = authMethod
 	p.Providers[string(id)] = account
@@ -41,7 +42,58 @@ func setProfileProviderAccount(p *profile.Profile, id providerpkg.ProviderID, us
 			p.GitHub = &profile.GitHubConfig{}
 		}
 		p.GitHub.Username = username
+	} else {
+		p.GitHub = nil
 	}
+}
+
+func profileProviderID(p *profile.Profile) (providerpkg.ProviderID, bool) {
+	if p == nil {
+		return "", false
+	}
+	if profileHasMultipleProviders(p) {
+		return "", false
+	}
+	if len(p.Providers) == 1 {
+		for id := range p.Providers {
+			return providerpkg.ProviderID(id), true
+		}
+	}
+	if p.GitHub != nil {
+		return providerpkg.GitHubID, true
+	}
+	return "", false
+}
+
+func profileProviderDefinition(p *profile.Profile, capability providerpkg.Capability) (providerpkg.Definition, bool) {
+	id, ok := profileProviderID(p)
+	if !ok || ctr == nil || ctr.ProviderRegistry == nil {
+		return providerpkg.Definition{}, false
+	}
+	def, ok := ctr.ProviderRegistry.Get(id)
+	if !ok || !def.Capabilities.Has(capability) {
+		return providerpkg.Definition{}, false
+	}
+	return def, true
+}
+
+func profileUsesProvider(p *profile.Profile, id providerpkg.ProviderID) bool {
+	profileProviderID, ok := profileProviderID(p)
+	return ok && profileProviderID == id
+}
+
+func profileHasMultipleProviders(p *profile.Profile) bool {
+	if p == nil {
+		return false
+	}
+	if len(p.Providers) > 1 {
+		return true
+	}
+	if len(p.Providers) == 1 && p.GitHub != nil {
+		_, hasGitHubProvider := p.Providers[string(providerpkg.GitHubID)]
+		return !hasGitHubProvider
+	}
+	return false
 }
 
 func providerTokenKey(profileName string, def providerpkg.Definition, account profile.ProviderAccountConfig) providerpkg.TokenKey {
@@ -82,6 +134,7 @@ func configureGitCredentialsForProvider(profileName string, p *profile.Profile, 
 	server := def.CredentialServer()
 	account := providerAccountForProfile(p, def.ID)
 	username := def.CredentialUsername(profileName, account.Username, token)
+	clearGitCredentialsForOtherProviders(def)
 
 	if IsCredentialHelperConfiguredFor(server) {
 		_ = ctr.GitHubClient.SetGitCredentialUsername(server, username)
@@ -91,6 +144,18 @@ func configureGitCredentialsForProvider(profileName string, p *profile.Profile, 
 	_ = ctr.GitHubClient.ClearGitCredentials(server)
 	_ = ctr.GitHubClient.StoreGitCredentials(server, username, token.AccessToken)
 	_ = ctr.GitHubClient.SetGitCredentialUsername(server, username)
+}
+
+func clearGitCredentialsForOtherProviders(active providerpkg.Definition) {
+	if ctr == nil || ctr.ProviderRegistry == nil {
+		return
+	}
+	for _, def := range ctr.ProviderRegistry.All() {
+		if def.ID == active.ID || !def.Capabilities.Has(providerpkg.CapabilityCredentialHelper) {
+			continue
+		}
+		_ = ctr.GitHubClient.ClearGitCredentials(def.CredentialServer())
+	}
 }
 
 func clearProfileProviderAccount(p *profile.Profile, id providerpkg.ProviderID) {
@@ -108,6 +173,14 @@ func clearProfileProviderAccount(p *profile.Profile, id providerpkg.ProviderID) 
 	}
 }
 
+func clearAllProfileProviderAccounts(p *profile.Profile) {
+	if p == nil {
+		return
+	}
+	p.Providers = nil
+	p.GitHub = nil
+}
+
 func providerDefinitionsWithCapability(capability providerpkg.Capability) []providerpkg.Definition {
 	if ctr == nil || ctr.ProviderRegistry == nil {
 		return nil
@@ -121,41 +194,29 @@ func providerDefinitionsWithCapability(capability providerpkg.Capability) []prov
 	return defs
 }
 
-func selectProviderWithCapability(requested string, capability providerpkg.Capability, prompt string) (providerpkg.Definition, error) {
-	defs := providerDefinitionsWithCapability(capability)
-	if len(defs) == 0 {
-		return providerpkg.Definition{}, fmt.Errorf("no configured provider supports this operation")
+func selectProfileProviderWithCapability(profileName string, p *profile.Profile, requested string, capability providerpkg.Capability) (providerpkg.Definition, error) {
+	def, ok := profileProviderDefinition(p, capability)
+	if !ok {
+		return providerpkg.Definition{}, fmt.Errorf("profile %q has no provider for this operation; set one with: gcm profile edit %s -i", profileName, profileName)
 	}
+	if requested == "" {
+		return def, nil
+	}
+	requestedID := normalizeProviderSelection(requested)
+	if requestedID != def.ID {
+		return providerpkg.Definition{}, fmt.Errorf("profile %q is configured for %s, not %s", profileName, def.DisplayName, requested)
+	}
+	return def, nil
+}
 
-	if requested != "" {
-		id := normalizeProviderSelection(requested)
-		for _, def := range defs {
-			if def.ID == id {
-				return def, nil
-			}
-		}
-		return providerpkg.Definition{}, fmt.Errorf("provider %q is not configured or does not support this operation", requested)
+func requireProfileProvider(profileName string, p *profile.Profile, def providerpkg.Definition) error {
+	if profileHasMultipleProviders(p) {
+		return fmt.Errorf("profile %q has multiple providers configured; choose exactly one with: gcm profile edit %s -i", profileName, profileName)
 	}
-
-	if len(defs) == 1 {
-		return defs[0], nil
+	if !profileUsesProvider(p, def.ID) {
+		return fmt.Errorf("profile %q is not configured for %s; run: gcm %s login %s", profileName, def.DisplayName, def.ID, profileName)
 	}
-	if isStdinPiped() {
-		return providerpkg.Definition{}, fmt.Errorf("multiple providers are configured; pass --provider explicitly")
-	}
-
-	options := make([]string, 0, len(defs))
-	byOption := make(map[string]providerpkg.Definition, len(defs))
-	for _, def := range defs {
-		option := providerOption(def)
-		options = append(options, option)
-		byOption[option] = def
-	}
-	choice, err := ui.AskSelect(prompt, options)
-	if err != nil {
-		return providerpkg.Definition{}, err
-	}
-	return byOption[choice], nil
+	return nil
 }
 
 func normalizeProviderSelection(value string) providerpkg.ProviderID {
@@ -184,9 +245,11 @@ func setupUploadKeys(ctx context.Context, profileName string) {
 	if err != nil || p == nil {
 		return
 	}
-	for _, def := range authenticatedProvidersForProfile(profileName, p, providerpkg.CapabilitySSHKeys) {
-		setupUploadKeysForProvider(ctx, profileName, p, def)
+	def, ok := profileProviderDefinition(p, providerpkg.CapabilitySSHKeys)
+	if !ok {
+		return
 	}
+	setupUploadKeysForProvider(ctx, profileName, p, def)
 }
 
 func setupUploadKeysForProvider(ctx context.Context, profileName string, p *profile.Profile, def providerpkg.Definition) {
@@ -286,14 +349,15 @@ func setupGPGKeyUploadForProvider(ctx context.Context, profileName string, p *pr
 }
 
 func authenticatedProvidersForProfile(profileName string, p *profile.Profile, capability providerpkg.Capability) []providerpkg.Definition {
-	var defs []providerpkg.Definition
-	for _, def := range providerDefinitionsWithCapability(capability) {
-		token, err := loadProviderToken(profileName, def, p)
-		if err == nil && token.AccessToken != "" {
-			defs = append(defs, def)
-		}
+	def, ok := profileProviderDefinition(p, capability)
+	if !ok {
+		return nil
 	}
-	return defs
+	token, err := loadProviderToken(profileName, def, p)
+	if err != nil || token.AccessToken == "" {
+		return nil
+	}
+	return []providerpkg.Definition{def}
 }
 
 func setProviderToken(def providerpkg.Definition, token providerpkg.TokenSet) error {
@@ -400,6 +464,94 @@ func safeProviderNameComponent(value string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+func sshKeyProfileName(profileName string, p *profile.Profile) string {
+	id, ok := profileProviderID(p)
+	if !ok {
+		return profileName
+	}
+	suffix := safeProviderNameComponent(string(id))
+	if suffix == "" {
+		return profileName
+	}
+	return fmt.Sprintf("%s_%s", profileName, suffix)
+}
+
+func migrateProfileSSHKeyPathToProvider(profileName string, p *profile.Profile) (bool, error) {
+	if p == nil || p.SSH == nil || p.SSH.KeyPath == "" {
+		return false, nil
+	}
+
+	targetProfileName := sshKeyProfileName(profileName, p)
+	if targetProfileName == profileName {
+		return false, nil
+	}
+
+	keyType := string(p.SSH.KeyType)
+	if keyType == "" {
+		keyType = inferSSHKeyTypeFromPath(p.SSH.KeyPath)
+	}
+	if keyType == "" {
+		return false, nil
+	}
+
+	currentPriv := p.SSH.KeyPath
+	legacyName := fmt.Sprintf("id_%s_%s", keyType, profileName)
+	if filepath.Base(currentPriv) != legacyName {
+		return false, nil
+	}
+
+	targetPriv := filepath.Join(filepath.Dir(currentPriv), fmt.Sprintf("id_%s_%s", keyType, targetProfileName))
+	if targetPriv == currentPriv {
+		return false, nil
+	}
+
+	if _, err := os.Stat(targetPriv); err == nil {
+		return false, fmt.Errorf("target SSH key already exists: %s", targetPriv)
+	}
+
+	currentPub := currentPriv + ".pub"
+	targetPub := targetPriv + ".pub"
+
+	if err := os.Rename(currentPriv, targetPriv); err != nil {
+		return false, fmt.Errorf("renaming SSH key: %w", err)
+	}
+
+	pubExists := false
+	if _, err := os.Stat(currentPub); err == nil {
+		pubExists = true
+		if err := os.Rename(currentPub, targetPub); err != nil {
+			_ = os.Rename(targetPriv, currentPriv)
+			return false, fmt.Errorf("renaming SSH public key: %w", err)
+		}
+	}
+
+	originalPath := p.SSH.KeyPath
+	p.SSH.KeyPath = targetPriv
+	if err := ctr.ProfileManager.Update(p); err != nil {
+		if pubExists {
+			_ = os.Rename(targetPub, currentPub)
+		}
+		_ = os.Rename(targetPriv, currentPriv)
+		p.SSH.KeyPath = originalPath
+		return false, fmt.Errorf("updating profile after SSH key rename: %w", err)
+	}
+
+	return true, nil
+}
+
+func inferSSHKeyTypeFromPath(keyPath string) string {
+	base := filepath.Base(strings.TrimSpace(keyPath))
+	if !strings.HasPrefix(base, "id_") {
+		return ""
+	}
+	rest := strings.TrimPrefix(base, "id_")
+	idx := strings.Index(rest, "_")
+	if idx <= 0 {
+		return ""
+	}
+	return rest[:idx]
 }
 
 func providerManualKeyURL(def providerpkg.Definition, kind string) string {

@@ -95,6 +95,11 @@ Examples:
 
 			p, _ := ctr.ProfileManager.Get(name)
 			if p != nil {
+				if migrated, migErr := migrateProfileSSHKeyPathToProvider(name, p); migErr != nil {
+					ui.Warning("Could not rename SSH key to provider format: %v", migErr)
+				} else if migrated {
+					ui.Detail("SSH Key Renamed", p.SSH.KeyPath)
+				}
 				ui.Detail("User", fmt.Sprintf("%s <%s>", p.Git.User.Name, p.Git.User.Email))
 			}
 
@@ -116,26 +121,25 @@ func configureCredentialsForActiveProfile(ctx context.Context, profileName strin
 		return
 	}
 
-	for _, def := range ctr.ProviderRegistry.All() {
-		if !def.Capabilities.Has(providerpkg.CapabilityCredentialHelper) {
-			continue
-		}
+	def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper)
+	if !ok {
+		return
+	}
 
-		token, err := loadProviderToken(profileName, def, p)
-		if err == nil && token.AccessToken != "" {
-			configureGitCredentialsForProvider(profileName, p, def, token)
-			verifyProviderTokenOnUse(ctx, profileName, def, token)
-			continue
-		}
+	token, err := loadProviderToken(profileName, def, p)
+	if err == nil && token.AccessToken != "" {
+		configureGitCredentialsForProvider(profileName, p, def, token)
+		verifyProviderTokenOnUse(ctx, profileName, def, token)
+		return
+	}
 
-		account := providerAccountForProfile(p, def.ID)
-		if account.Username == "" {
-			continue
-		}
-		if IsCredentialHelperConfiguredFor(def.CredentialServer()) {
-			username := def.CredentialUsername(profileName, account.Username, providerpkg.TokenSet{AuthMethod: account.AuthMethod})
-			_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), username)
-		}
+	account := providerAccountForProfile(p, def.ID)
+	if account.Username == "" {
+		return
+	}
+	if IsCredentialHelperConfiguredFor(def.CredentialServer()) {
+		username := def.CredentialUsername(profileName, account.Username, providerpkg.TokenSet{AuthMethod: account.AuthMethod})
+		_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), username)
 	}
 }
 

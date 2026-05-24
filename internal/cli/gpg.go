@@ -226,9 +226,9 @@ func newGPGUploadCmd() *cobra.Command {
 Checks for duplicates before uploading. Use --force to skip the check.
 
 Examples:
-	  gcm gpg upload work --provider github
-	  gcm gpg upload work --provider gitlab
-	  gcm gpg upload work --provider gitlab --force`,
+	  gcm gpg upload work-github --provider github
+	  gcm gpg upload work-gitlab --provider gitlab
+	  gcm gpg upload work-gitlab --provider gitlab --force`,
 		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -245,7 +245,7 @@ Examples:
 				return nil
 			}
 
-			def, err := selectProviderWithCapability(providerName, providerpkg.CapabilityGPGKeys, "Upload GPG key to which provider?")
+			def, err := selectProfileProviderWithCapability(profileName, p, providerName, providerpkg.CapabilityGPGKeys)
 			if err != nil {
 				return err
 			}

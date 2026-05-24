@@ -23,8 +23,8 @@ func NewRootCmd() *cobra.Command {
 		Short: "Git Config Manager",
 		Long: `Git Config Manager (GCM) - Manage your Git identities with ease.
 
-GCM helps you manage multiple Git identities, SSH keys, GPG keys,
-and GitHub/GitLab accounts from a single, intuitive CLI tool.
+GCM helps you manage multiple provider-scoped Git identities, SSH keys,
+GPG keys, and GitHub/GitLab accounts from a single, intuitive CLI tool.
 
 ` + ui.Bold("Getting Started") + `
   gcm setup                     Guided first-time setup (start here!)

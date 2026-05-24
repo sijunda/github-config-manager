@@ -47,8 +47,8 @@ For self-managed GitLab, configure providers.gitlab.api_url/web_url/git_hosts fi
 Recommended scopes for this MVP: api, read_user, read_repository, write_repository.
 
 Examples:
-  gcm gitlab login work
-  echo "$GITLAB_TOKEN" | gcm gitlab login work`,
+	gcm gitlab login work-gitlab
+	echo "$GITLAB_TOKEN" | gcm gitlab login work-gitlab`,
 		Args: requireArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -100,13 +100,13 @@ Examples:
 			}
 			sp.Stop("Token verified!")
 
+			setProfileProviderAccount(profileConfig, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
 			if err := saveProviderToken(profileName, def, profileConfig, tokenSet); err != nil {
 				ctr.AuditLogger.Log(audit.ActionProviderLogin, profileName,
 					map[string]string{"provider": string(providerpkg.GitLabID), "method": "pat"}, err)
 				return fmt.Errorf("could not save the GitLab token securely\n\n  This might be a file permission issue. Run: gcm doctor")
 			}
 
-			setProfileProviderAccount(profileConfig, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
 			if err := ctr.ProfileManager.Update(profileConfig); err != nil {
 				ui.Warning("GitLab token was saved, but profile metadata could not be updated: %v", err)
 			}
@@ -157,6 +157,13 @@ func newGitLabLogoutCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("profile %q not found", profileName)
 			}
+			def, err := gitLabProviderDefinition()
+			if err != nil {
+				return err
+			}
+			if err := requireProfileProvider(profileName, profileConfig, def); err != nil {
+				return err
+			}
 
 			if !isActiveProfile(profileName) && !forceLogout {
 				ui.Warning("Profile %q is not the active profile.", profileName)
@@ -165,11 +172,6 @@ func newGitLabLogoutCmd() *cobra.Command {
 					ui.Info("Cancelled.")
 					return nil
 				}
-			}
-
-			def, err := gitLabProviderDefinition()
-			if err != nil {
-				return err
 			}
 
 			if err := deleteProviderToken(profileName, def, profileConfig); err != nil {
@@ -216,6 +218,9 @@ func newGitLabVerifyCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := requireProfileProvider(profileName, profileConfig, def); err != nil {
+				return err
+			}
 			token, err := loadProviderToken(profileName, def, profileConfig)
 			if err != nil {
 				ui.Print("Profile %q is not authenticated with GitLab yet.", profileName)
@@ -250,6 +255,9 @@ func newGitLabUserCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := requireProfileProvider(profileName, profileConfig, def); err != nil {
+				return err
+			}
 			token, err := loadProviderToken(profileName, def, profileConfig)
 			if err != nil {
 				ui.Print("Profile %q is not authenticated with GitLab yet.", profileName)
@@ -274,7 +282,7 @@ func newGitLabUserCmd() *cobra.Command {
 func newGitLabStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show GitLab authentication status for all profiles",
+		Short: "Show GitLab authentication status for GitLab profiles",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			profiles, err := ctr.ProfileManager.List()
 			if err != nil {
@@ -291,6 +299,9 @@ func newGitLabStatusCmd() *cobra.Command {
 			headers := []string{"Profile", "Status", "Username", "Method"}
 			var rows [][]string
 			for _, profileConfig := range profiles {
+				if !profileUsesProvider(profileConfig, providerpkg.GitLabID) {
+					continue
+				}
 				status := ui.Red("not authenticated")
 				username := "-"
 				method := "-"
@@ -312,6 +323,11 @@ func newGitLabStatusCmd() *cobra.Command {
 				}
 
 				rows = append(rows, []string{profileConfig.Name, status, username, method})
+			}
+
+			if len(rows) == 0 {
+				ui.Info("No GitLab-scoped profiles found")
+				return nil
 			}
 
 			ui.SimpleTable(headers, rows)

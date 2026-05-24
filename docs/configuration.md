@@ -196,14 +196,11 @@ github:
   token_path: ""                       # Token file path (optional, managed by GCM)
   upload_keys: true                    # Upload SSH/GPG keys to GitHub (optional)
 
-# Provider account configuration (optional section).
+# Provider account configuration (optional section). Choose exactly one provider
+# per profile; create another profile for another provider account.
 providers:
   github:
     username: "jane-acme"
-    auth_method: "pat"
-    upload_keys: true
-  gitlab:
-    username: "jane-gitlab"
     auth_method: "pat"
     upload_keys: true
 

@@ -24,6 +24,14 @@ func gitServer() string {
 	return server
 }
 
+func githubProviderDefinition() (providerpkg.Definition, error) {
+	def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID)
+	if !ok {
+		return providerpkg.Definition{}, fmt.Errorf("GitHub provider is not configured")
+	}
+	return def, nil
+}
+
 // isActiveProfile returns true if the given profile name is the currently active one.
 func isActiveProfile(name string) bool {
 	current, _, err := ctr.ProfileSwitcher.Current()
@@ -64,8 +72,8 @@ How to get a token:
   4. Copy the token and paste it below
 
 Examples:
-  gcm github login work                         (interactive, will prompt)
-  echo "$GH_TOKEN" | gcm github login work      (piped from environment)`,
+	gcm github login work-github                         (interactive, will prompt)
+	echo "$GH_TOKEN" | gcm github login work-github      (piped from environment)`,
 		Args: requireArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -193,11 +201,22 @@ Use --clear-credentials=false if you only want to remove the token from GCM
 without affecting git operations.
 
 Examples:
-  gcm github logout work
-  gcm github logout work --clear-credentials=false`,
+	gcm github logout work-github
+	gcm github logout work-github --clear-credentials=false`,
 		Args: requireArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			profileName := args[0]
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
+				return fmt.Errorf("profile %q not found", profileName)
+			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
+			}
+			if err := requireProfileProvider(profileName, p, def); err != nil {
+				return err
+			}
 
 			// Guard: require confirmation when logging out a non-active profile
 			if !isActiveProfile(profileName) && !forceLogout {
@@ -210,8 +229,10 @@ Examples:
 				}
 			}
 
-			if err := ctr.GitHubClient.DeleteToken(profileName); err != nil {
-				ctr.AuditLogger.Log(audit.ActionGitHubLogout, profileName, nil, err)
+			providerDeleteErr := deleteProviderToken(profileName, def, p)
+			legacyDeleteErr := ctr.GitHubClient.DeleteToken(profileName)
+			if providerDeleteErr != nil && legacyDeleteErr != nil {
+				ctr.AuditLogger.Log(audit.ActionGitHubLogout, profileName, nil, providerDeleteErr)
 				return fmt.Errorf("could not remove token for profile %q\n\n  The token file may not exist or cannot be accessed.\n  Check with: gcm github status", profileName)
 			}
 
@@ -255,15 +276,23 @@ func newGitHubVerifyCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
 
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				ui.Error("profile %q not found", profileName)
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create %s -i", profileName)
 				return nil
 			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
+			}
+			if err := requireProfileProvider(profileName, p, def); err != nil {
+				return err
+			}
 
-			token, err := ctr.GitHubClient.LoadToken(profileName)
+			token, err := loadProviderToken(profileName, def, p)
 			if err != nil {
 				ui.Blank()
 				ui.Print("Profile %q is not authenticated with GitHub yet.", profileName)
@@ -274,7 +303,7 @@ func newGitHubVerifyCmd() *cobra.Command {
 				ui.Print("  gcm github login-gh %s      (import from GitHub CLI)", profileName)
 				return fmt.Errorf("profile %q is not authenticated", profileName)
 			}
-			ctr.GitHubClient.SetToken(token)
+			ctr.GitHubClient.SetToken(token.AccessToken)
 			user, err := ctr.GitHubClient.VerifyToken(cmd.Context())
 			if err != nil {
 				ui.Blank()
@@ -299,15 +328,23 @@ func newGitHubUserCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
 
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				ui.Error("profile %q not found", profileName)
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create %s -i", profileName)
 				return nil
 			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
+			}
+			if err := requireProfileProvider(profileName, p, def); err != nil {
+				return err
+			}
 
-			token, err := ctr.GitHubClient.LoadToken(profileName)
+			token, err := loadProviderToken(profileName, def, p)
 			if err != nil {
 				ui.Blank()
 				ui.Print("Profile %q is not authenticated with GitHub yet.", profileName)
@@ -315,7 +352,7 @@ func newGitHubUserCmd() *cobra.Command {
 				ui.Print("To authenticate: gcm github login %s", profileName)
 				return fmt.Errorf("profile %q is not authenticated", profileName)
 			}
-			ctr.GitHubClient.SetToken(token)
+			ctr.GitHubClient.SetToken(token.AccessToken)
 			user, err := ctr.GitHubClient.GetUser(cmd.Context())
 			if err != nil {
 				ui.Blank()
@@ -349,7 +386,7 @@ Requirements:
   • Internet connection to reach github.com
 
 Examples:
-  gcm github login-oauth work
+	gcm github login-oauth work-github
   gcm github login-oauth personal`,
 		Args: requireArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -482,7 +519,7 @@ If you don't have the GitHub CLI:
   • Then run: gh auth login
 
 Examples:
-  gcm github login-gh work`,
+	gcm github login-gh work-github`,
 		Args: requireArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -586,9 +623,13 @@ Examples:
 
 func newGitHubStatusCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "status", Short: "Show authentication status for all profiles",
+		Use: "status", Short: "Show authentication status for GitHub profiles",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			profiles, err := ctr.ProfileManager.List()
+			if err != nil {
+				return err
+			}
+			def, err := githubProviderDefinition()
 			if err != nil {
 				return err
 			}
@@ -600,27 +641,38 @@ func newGitHubStatusCmd() *cobra.Command {
 			var rows [][]string
 
 			for _, p := range profiles {
+				if !profileUsesProvider(p, providerpkg.GitHubID) {
+					continue
+				}
 				status := ui.Red("not authenticated")
 				username := "-"
 				method := "-"
 
-				token, err := ctr.GitHubClient.LoadToken(p.Name)
-				if err == nil && token != "" {
-					ctr.GitHubClient.SetToken(token)
+				token, err := loadProviderToken(p.Name, def, p)
+				if err == nil && token.AccessToken != "" {
+					ctr.GitHubClient.SetToken(token.AccessToken)
 					if user, verr := ctr.GitHubClient.GetUser(cmd.Context()); verr == nil {
 						status = ui.Green("authenticated")
 						username = user.Login
-						method = "token"
+						method = token.AuthMethod
+						if method == "" {
+							method = "token"
+						}
 					} else {
 						status = ui.Yellow("token expired")
 					}
 				}
 
-				if p.GitHub != nil && p.GitHub.Username != "" && username == "-" {
-					username = p.GitHub.Username + " (cached)"
+				account := providerAccountForProfile(p, providerpkg.GitHubID)
+				if account.Username != "" && username == "-" {
+					username = account.Username + " (cached)"
 				}
 
 				rows = append(rows, []string{p.Name, status, username, method})
+			}
+			if len(rows) == 0 {
+				ui.Info("No GitHub-scoped profiles found")
+				return nil
 			}
 
 			ui.SimpleTable(headers, rows)

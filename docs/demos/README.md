@@ -6,7 +6,7 @@ This folder contains the VHS source for the combined GCM demo. The walkthrough c
 
 | Source | Output | Notes |
 | ------ | ------ | ----- |
-| [demo.tape](demo.tape) | [../demo.gif](../demo.gif) | Full CLI walkthrough with GitHub and GitLab provider commands |
+| [demo.tape](demo.tape) | [../demo.gif](../demo.gif) | Full CLI walkthrough with provider-scoped GitHub and GitLab commands |
 
 ## Re-recording
 

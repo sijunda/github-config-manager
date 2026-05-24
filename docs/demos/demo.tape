@@ -32,7 +32,7 @@ Show
 
 Type "# GCM — Git Config Manager"
 Enter
-Type "# Manage multiple Git identities, SSH keys, GPG keys & provider accounts"
+Type "# Manage provider-scoped Git identities, SSH keys, GPG keys & accounts"
 Enter
 Sleep 2s
 Type "clear"
@@ -166,6 +166,10 @@ Sleep 500ms
 # ═══════════════════════════════════════════════════════════════════════════════
 
 Type "# ─── 7. Provider Integrations ───"
+Enter
+Sleep 1s
+
+Type "# Each profile chooses exactly one provider"
 Enter
 Sleep 1s
 
@@ -305,7 +309,7 @@ Type "#"
 Enter
 Type "#   Profile Management   •  SSH Key Generation  •  GPG Signing"
 Enter
-Type "#   GitHub & GitLab      •  Credential Isolation •  Shell Hooks"
+Type "#   One Provider/Profile •  Credential Isolation •  Shell Hooks"
 Enter
 Type "#   Templates            •  Backup & Restore    •  Diagnostics"
 Enter
