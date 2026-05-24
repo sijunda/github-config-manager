@@ -561,40 +561,52 @@ check_existing_installation() {
     shell_configs_str=$(get_shell_configs)
     local shell_configs=($shell_configs_str)
     local binary_found=false
-    local config_found=false
+    local binary_valid=false
     local command_found=false
 
     print_step "Checking for existing installation..."
 
     # Check if gcm binary exists in common locations
-    if [[ -f "$install_dir/gcm" ]] || [[ -f "/usr/local/bin/gcm" ]]; then
+    local found_path=""
+    if [[ -f "$install_dir/gcm" ]]; then
         binary_found=true
+        found_path="$install_dir/gcm"
+    elif [[ -f "/usr/local/bin/gcm" ]]; then
+        binary_found=true
+        found_path="/usr/local/bin/gcm"
     fi
 
-    # Check shell configurations
-    for shell_config in "${shell_configs[@]}"; do
-        if [[ -f "$shell_config" ]] && grep -q "GCM" "$shell_config" 2>/dev/null; then
-            config_found=true
-            break
+    # Verify binary is actually valid (executable and can run)
+    if [[ "$binary_found" == true && -x "$found_path" ]]; then
+        if "$found_path" version >/dev/null 2>&1; then
+            binary_valid=true
         fi
-    done
-
-    # Check if gcm command is available in PATH
-    if command -v gcm >/dev/null 2>&1; then
-        command_found=true
     fi
 
-    # If any installation traces found, show details
-    if [[ "$binary_found" == true || "$command_found" == true ]]; then
+    # Check if gcm command is available in PATH and works
+    if command -v gcm >/dev/null 2>&1; then
+        if gcm version >/dev/null 2>&1; then
+            command_found=true
+        fi
+    fi
+
+    # If binary exists but is broken (corrupted/partial download), remove it
+    if [[ "$binary_found" == true && "$binary_valid" == false ]]; then
+        print_warning "Found corrupted/incomplete gcm binary at $found_path"
+        print_info "Removing broken binary and proceeding with fresh install..."
+        rm -f "$found_path"
+        echo
+        return
+    fi
+
+    # Only block if we have a WORKING installation
+    if [[ "$binary_valid" == true || "$command_found" == true ]]; then
         echo
         print_separator "┄"
         echo -e "${BOLD}${WHITE}Existing Installation Detected:${NC}"
         print_separator "┄"
 
-        if [[ "$binary_found" == true ]]; then
-            local found_path=""
-            [[ -f "$install_dir/gcm" ]] && found_path="$install_dir/gcm"
-            [[ -f "/usr/local/bin/gcm" ]] && found_path="/usr/local/bin/gcm"
+        if [[ "$binary_valid" == true ]]; then
             echo -e "${GREEN} ${CHECKMARK}${NC} Binary found: ${BOLD}${found_path}${NC}"
         fi
 

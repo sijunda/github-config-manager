@@ -207,58 +207,81 @@ goto :eof
 :check_existing_installation
 call :print_step "Checking for existing installation..."
 
-set "EXISTING_FOUND=0"
+set "BINARY_VALID=0"
+set "BINARY_PATH=%USERPROFILE%\.local\bin\gcm.exe"
 
-REM Check if gcm is in PATH
-where gcm >nul 2>&1
-if %errorlevel%==0 (
-    set "EXISTING_FOUND=1"
-)
+REM Check if binary exists
+if not exist "%BINARY_PATH%" goto :check_path_command
 
-REM Check common install locations
-if exist "%USERPROFILE%\.local\bin\gcm.exe" set "EXISTING_FOUND=1"
-
-if %EXISTING_FOUND%==1 (
-    echo.
-    call :print_separator "-"
-    echo %BOLD%%WHITE%Existing Installation Detected:%RESET%
-    call :print_separator "-"
-    
-    where gcm >nul 2>&1
-    if !errorlevel!==0 (
-        for /f "tokens=*" %%v in ('gcm version 2^>nul') do (
-            echo %GREEN% %CHECKMARK%%RESET% Command available: %BOLD%gcm%RESET% %DIM%^(%%v^)%RESET%
-            goto :show_existing_done
-        )
-    )
-    :show_existing_done
-    
-    if exist "%USERPROFILE%\.gcm" (
-        echo %BLUE% %INFO%%RESET% Data directory: %BOLD%%USERPROFILE%\.gcm%RESET%
-    )
-    
-    call :print_separator "-"
-    echo.
-    call :print_warning "GCM is already installed on this system!"
-    echo.
-    call :print_separator "-"
-    echo %BOLD%%WHITE%What you can do:%RESET%
-    echo  * Run 'gcm version' to check current version
-    echo  * Run 'gcm --help' to see available commands
-    echo  * Use the uninstaller script first if you need to reinstall
-    echo  * Run 'gcm doctor' to check system health
-    call :print_separator "-"
-    echo.
-    call :print_separator "="
-    echo %DIM%%GRAY%Installation cancelled - gcm already exists%RESET%
-    call :print_separator "="
-    echo.
-    exit /b 0
+REM Binary exists - verify it actually works
+"%BINARY_PATH%" version >nul 2>&1
+if !errorlevel!==0 (
+    set "BINARY_VALID=1"
 ) else (
-    call :print_success "No existing installation found - proceeding with fresh install"
+    REM Binary is corrupted/incomplete - remove and proceed
+    call :print_warning "Found corrupted/incomplete gcm binary at %BINARY_PATH%"
+    call :print_info "Removing broken binary and proceeding with fresh install..."
+    del "%BINARY_PATH%" 2>nul
     echo.
+    goto :eof
 )
+
+:check_path_command
+REM Check if gcm command works from PATH
+set "COMMAND_VALID=0"
+where gcm >nul 2>&1
+if !errorlevel!==0 (
+    gcm version >nul 2>&1
+    if !errorlevel!==0 set "COMMAND_VALID=1"
+)
+
+REM Only block if we have a WORKING installation
+if !BINARY_VALID!==1 goto :show_existing
+if !COMMAND_VALID!==1 goto :show_existing
+
+call :print_success "No existing installation found - proceeding with fresh install"
+echo.
 goto :eof
+
+:show_existing
+echo.
+call :print_separator "-"
+echo %BOLD%%WHITE%Existing Installation Detected:%RESET%
+call :print_separator "-"
+
+if !BINARY_VALID!==1 (
+    echo %GREEN% %CHECKMARK%%RESET% Binary found: %BOLD%%BINARY_PATH%%RESET%
+)
+
+if !COMMAND_VALID!==1 (
+    for /f "tokens=*" %%v in ('gcm version 2^>nul') do (
+        echo %GREEN% %CHECKMARK%%RESET% Command available: %BOLD%gcm%RESET% %DIM%^(%%v^)%RESET%
+        goto :show_existing_done
+    )
+)
+:show_existing_done
+
+if exist "%USERPROFILE%\.gcm" (
+    echo %BLUE% %INFO%%RESET% Data directory: %BOLD%%USERPROFILE%\.gcm%RESET%
+)
+
+call :print_separator "-"
+echo.
+call :print_warning "GCM is already installed on this system!"
+echo.
+call :print_separator "-"
+echo %BOLD%%WHITE%What you can do:%RESET%
+echo  * Run 'gcm version' to check current version
+echo  * Run 'gcm --help' to see available commands
+echo  * Use the uninstaller script first if you need to reinstall
+echo  * Run 'gcm doctor' to check system health
+call :print_separator "-"
+echo.
+call :print_separator "="
+echo %DIM%%GRAY%Installation cancelled - gcm already exists%RESET%
+call :print_separator "="
+echo.
+exit /b 0
 
 :show_system_info
 call :print_separator "-"

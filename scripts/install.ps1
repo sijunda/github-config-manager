@@ -364,19 +364,48 @@ function Show-Completion {
 function Test-ExistingInstallation {
     $installDir = Join-Path $env:USERPROFILE ".local\bin"
     $gcmDir = Join-Path $env:USERPROFILE ".gcm"
-    $binaryFound = (Test-Path (Join-Path $installDir "gcm.exe")) -or (Test-Path (Join-Path $env:USERPROFILE ".local\bin\gcm.exe"))
-    $commandFound = $null -ne (Get-Command gcm -ErrorAction SilentlyContinue)
+    $binaryPath = Join-Path $installDir "gcm.exe"
+    $binaryFound = Test-Path $binaryPath
+    $binaryValid = $false
+    $commandFound = $false
 
     Print-Step "Checking for existing installation..."
 
-    if ($binaryFound -or $commandFound) {
+    # Verify binary is actually valid (not corrupted/partial)
+    if ($binaryFound) {
+        try {
+            $null = & $binaryPath version 2>$null
+            if ($LASTEXITCODE -eq 0) { $binaryValid = $true }
+        } catch {}
+    }
+
+    # Check if gcm command is available and works
+    $gcmCmd = Get-Command gcm -ErrorAction SilentlyContinue
+    if ($gcmCmd) {
+        try {
+            $null = & gcm version 2>$null
+            if ($LASTEXITCODE -eq 0) { $commandFound = $true }
+        } catch {}
+    }
+
+    # If binary exists but is broken, remove it and proceed
+    if ($binaryFound -and -not $binaryValid) {
+        Print-Warning "Found corrupted/incomplete gcm binary at $binaryPath"
+        Print-Info "Removing broken binary and proceeding with fresh install..."
+        Remove-Item -Path $binaryPath -Force -ErrorAction SilentlyContinue
+        Write-Host ""
+        return
+    }
+
+    # Only block if we have a WORKING installation
+    if ($binaryValid -or $commandFound) {
         Write-Host ""
         Print-Separator "┄"
         Write-Host "$($Colors.Bold)$($Colors.White)Existing Installation Detected:$($Colors.Reset)"
         Print-Separator "┄"
 
-        if ($binaryFound) {
-            Write-Host "$($Colors.Green) $($Icons.Checkmark)$($Colors.Reset) Binary found: $($Colors.Bold)$(Join-Path $installDir 'gcm.exe')$($Colors.Reset)"
+        if ($binaryValid) {
+            Write-Host "$($Colors.Green) $($Icons.Checkmark)$($Colors.Reset) Binary found: $($Colors.Bold)$binaryPath$($Colors.Reset)"
         }
 
         if ($commandFound) {
