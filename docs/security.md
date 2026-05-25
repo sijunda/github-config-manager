@@ -169,6 +169,12 @@ When running `gcm github login*` commands:
 - On Windows this removes it from Credential Manager
 - On Linux this removes it from secret-service/KWallet
 
+`gcm auth logout` is ownership-aware:
+- Default `--scope gcm` removes only the GCM-managed provider token
+- `--scope external` asks Git's credential chain to reject an external credential and requires confirmation unless `--yes` is supplied
+- `--scope all` removes both GCM-owned and external credentials for the selected provider/profile
+- `--dry-run` reports what would be removed without deleting anything
+
 ---
 
 ## Credential Helper Isolation
@@ -203,6 +209,15 @@ Provider-aware token files in `~/.gcm/tokens/` are encrypted with **AES-256-GCM*
 ### Diagnostics
 
 `gcm doctor` checks that the credential helper is properly registered. If it's missing, run `gcm init` to re-register it.
+
+`gcm auth status` and `gcm auth inspect` add source-aware diagnostics:
+- `authenticated:gcm` — GCM owns and can verify the provider token
+- `authenticated:external` — Git can authenticate through a credential GCM does not own
+- `authenticated:mixed` — GCM and external credentials are both present
+- `conflicted` — credentials resolve to different accounts or do not match profile metadata
+- `revoked` / `expired` — GCM-managed token is present but no longer usable
+
+`gcm auth adopt` verifies an exportable external credential before saving it into GCM's token store. `gcm auth repair` can safely re-register the credential helper; it does not adopt or delete external credentials.
 
 ---
 

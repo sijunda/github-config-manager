@@ -225,7 +225,7 @@ git clone https://github.com/jane/my-project.git          # ✓ works
 git clone https://github.com/acme-corp/private-repo.git   # ✗ access denied (correct!)
 ```
 
-> **How it works:** `gcm use` calls `git credential reject` to clear old credentials, `git credential approve` to store the new profile's credentials, and pins the provider-host `credential.*.username` value to prevent fallback to other stored credentials.
+> **How it works:** When GCM's credential helper is registered, git asks `gcm credential-helper` for the active profile's provider token. In legacy system-helper mode, `gcm use` calls `git credential reject`/`approve` and pins the provider-host `credential.*.username` value to prevent fallback to other stored credentials. Use `gcm auth inspect <profile>` to see whether the effective credential is GCM-owned or external.
 
 ---
 

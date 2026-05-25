@@ -30,7 +30,7 @@
   - [8. Managing Profiles](#8-managing-profiles)
   - [9. SSH Key Management](#9-ssh-key-management)
   - [10. GPG Commit Signing](#10-gpg-commit-signing)
-  - [11. GitHub Integration](#11-github-integration)
+  - [11. Provider Authentication](#11-provider-authentication)
   - [12. Templates](#12-templates)
   - [13. Backup \& Restore](#13-backup--restore)
   - [14. Diagnostics \& Validation](#14-diagnostics--validation)
@@ -427,7 +427,7 @@ When signing is enabled, `gcm use <profile>` writes:
 
 ---
 
-## 11. GitHub Integration
+## 11. Provider Authentication
 
 For the provider-neutral login path, prefer:
 
@@ -435,6 +435,19 @@ For the provider-neutral login path, prefer:
 gcm connect work --provider github
 gcm connect work --provider gitlab
 ```
+
+One profile belongs to one provider. Authentication status is source-aware: GCM distinguishes tokens it owns from external Git credentials returned by helpers such as Keychain, Git Credential Manager, GitHub CLI, or libsecret.
+
+```bash
+gcm auth status work --provider github --verbose
+gcm auth inspect work --provider github
+gcm auth adopt work --provider github --dry-run
+gcm auth logout work --scope gcm
+gcm auth doctor work
+gcm auth repair --dry-run
+```
+
+Use `gcm auth adopt` only when you intentionally want to copy an exportable external Git credential into GCM's provider-aware token store. Use `gcm auth logout --scope external` only when you intentionally want GCM to ask Git's credential chain to remove a credential owned by another tool.
 
 GCM supports multiple GitHub authentication methods:
 
@@ -449,8 +462,10 @@ gcm github login-oauth work
 # Method 3: Import from GitHub CLI (if you already use 'gh')
 gcm github login-gh work
 
-# Manage tokens
-gcm github status            # show auth status for all profiles
+# Manage tokens and auth state
+gcm github status            # source-aware auth status for GitHub profiles
+gcm auth status work         # GCM/external ownership status
+gcm auth inspect work        # detailed source/helper inspection
 gcm github verify work       # check if token is still valid
 gcm github user work         # print GitHub user info
 gcm github logout work       # remove stored token
@@ -688,6 +703,15 @@ Activation
   gcm current [--short]
   gcm refresh [--silent]
 
+Auth
+  gcm connect <name> --provider github|gitlab
+  gcm auth status [name] [--provider] [--json]
+  gcm auth inspect <name> [--provider]
+  gcm auth adopt <name> [--provider] [--dry-run]
+  gcm auth logout <name> [--scope gcm|external|all]
+  gcm auth doctor [name] [--json]
+  gcm auth repair [name] [--dry-run] [--yes]
+
 SSH
   gcm ssh generate <name> [-t] [-b] [-c] [-p]
   gcm ssh upload <name> [--force]
@@ -704,7 +728,7 @@ GitHub
   gcm github login <name>           # Personal Access Token
   gcm github login-oauth <name>     # OAuth device flow
   gcm github login-gh <name>        # Import from gh CLI
-  gcm github status                 # Auth status for all profiles
+  gcm github status                 # Source-aware auth status
   gcm github logout <name>
   gcm github verify <name>
   gcm github user <name>
@@ -784,11 +808,17 @@ After `gcm use`, git should only use the active profile's credentials. If you're
 
 2. **Clear stale credentials manually:**
    ```bash
-   gcm github logout <old-profile> --clear-credentials
+  gcm auth logout <old-profile> --scope external --dry-run
+  gcm github logout <old-profile> --clear-credentials
    gcm use <correct-profile>
    ```
 
-3. **Verify which account git sees:**
+3. **Inspect the source Git sees:**
+  ```bash
+  gcm auth inspect <correct-profile> --provider github
+  ```
+
+4. **Verify which account git sees:**
    ```bash
    ssh -T git@github.com   # SSH check
    # or for HTTPS:
@@ -797,7 +827,7 @@ After `gcm use`, git should only use the active profile's credentials. If you're
    "
    ```
 
-4. **macOS Keychain note:** If you previously saved credentials via Keychain Access, they may override GCM's pinning. Open Keychain Access → search "github.com" → delete old entries, then re-run `gcm use`.
+5. **macOS Keychain note:** If you previously saved credentials via Keychain Access, they may override GCM's pinning. Prefer `gcm auth logout <profile> --scope external --dry-run` before deleting entries manually, then re-run `gcm use`.
 
 ### Reset a broken state
 

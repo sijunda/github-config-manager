@@ -195,6 +195,7 @@ Make sure you:
 This means you haven't logged in yet for this profile:
 
 ```bash
+gcm auth status work --provider github  # confirm GCM vs external auth state
 gcm github login work              # Personal Access Token
 gcm github login-oauth work        # OAuth device flow (browser-based)
 gcm github login-gh work           # import from GitHub CLI
@@ -227,12 +228,18 @@ GCM automatically isolates git credentials per profile when you `gcm use`. If yo
 
 3. **Clear stale credentials** from the OS credential store:
    ```bash
+   gcm auth logout <wrong-profile> --scope external --dry-run
    gcm github logout <wrong-profile> --clear-credentials
    ```
 
-4. **macOS Keychain interference:** Open Keychain Access → search "github.com" → delete old entries that weren't managed by GCM.
+4. **Inspect credential ownership and source:**
+   ```bash
+   gcm auth inspect <correct-profile> --provider github
+   ```
 
-5. **Verify which account git sees:**
+5. **macOS Keychain interference:** Open Keychain Access → search "github.com" → delete old entries that weren't managed by GCM. Prefer the `gcm auth logout --scope external --dry-run` preview first.
+
+6. **Verify which account git sees:**
    ```bash
    # For HTTPS:
    echo "protocol=https\nhost=github.com\n" | git credential fill
@@ -260,7 +267,17 @@ This configures git to use `gcm credential-helper` for configured provider hosts
 
 ```bash
 gcm doctor
+gcm auth inspect work --provider github
 ```
+
+If `git push` works but GCM says the profile is not authenticated, Git is likely using an external credential that GCM does not own. Use `gcm auth inspect <profile> --provider github` to see the source. If the external credential is exportable and matches the intended account, adopt it explicitly:
+
+```bash
+gcm auth adopt work --provider github --dry-run
+gcm auth adopt work --provider github --yes
+```
+
+If you do not want GCM to own that credential, leave it external; status will report it as `authenticated:external` instead of pretending it is GCM-managed.
 
 ---
 

@@ -114,7 +114,7 @@ func TestSetContainerAndRootCommandShape(t *testing.T) {
 	if root.Use != "gcm" || !root.SilenceUsage || !root.SilenceErrors {
 		t.Fatalf("root command = %+v", root)
 	}
-	want := []string{"setup", "status", "use", "current", "refresh", "profile", "ssh", "gpg", "connect", "switch-provider", "github", "gitlab", "init", "template", "backup", "validate", "doctor", "repair", "version", "clean", "credential-helper"}
+	want := []string{"setup", "status", "use", "current", "refresh", "profile", "ssh", "gpg", "connect", "auth", "switch-provider", "github", "gitlab", "init", "template", "backup", "validate", "doctor", "repair", "version", "clean", "credential-helper"}
 	for _, name := range want {
 		if _, _, err := root.Find([]string{name}); err != nil {
 			t.Fatalf("missing root command %q: %v", name, err)

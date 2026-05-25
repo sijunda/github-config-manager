@@ -65,6 +65,8 @@ Shows: active profile, all profiles summary, provider auth status, SSH keys, and
 
 Provider token checks are bounded-concurrent when `advanced.parallel_operations` is enabled, so status stays responsive with many profiles.
 
+For credential ownership, helper source, and external-auth inspection, use `gcm auth status` or `gcm auth inspect`.
+
 ---
 
 ## `gcm repair`
@@ -85,6 +87,117 @@ gcm repair --json
 4. Legacy GitHub token entries that can be migrated to provider-aware storage
 
 By default, `repair` only reports. `--fix` applies safe local repairs and asks for confirmation unless `--yes` is supplied. `--json` emits a redacted machine-readable report for automation.
+
+---
+
+## `gcm auth`
+
+Inspect and manage provider authentication ownership. These commands distinguish GCM-managed tokens from external Git credentials such as macOS Keychain, Windows Credential Manager, Git Credential Manager, GitHub CLI, libsecret, and other Git credential helpers.
+
+GCM-owned credentials live in GCM's provider-aware token store. External credentials are detected and explained, but GCM does not adopt or delete them unless you run an explicit `gcm auth adopt` or `gcm auth logout --scope external|all` command.
+
+### `gcm auth status [profile]`
+
+Show source-aware auth status for one profile or all profiles.
+
+```bash
+gcm auth status
+gcm auth status work --provider github
+gcm auth status work --provider gitlab --verbose
+gcm auth status --json
+```
+
+**Output columns:** Profile, Provider, State, Owner, Source, Username, Findings.
+
+Common states include `authenticated:gcm`, `authenticated:external`, `authenticated:mixed`, `partial`, `expired`, `revoked`, `conflicted`, `unknown`, and `unauthenticated`.
+
+| Flag             | Short | Description                                      |
+| ---------------- | ----- | ------------------------------------------------ |
+| `--provider`     |       | Provider to inspect (`github`, `gitlab`)         |
+| `--json`         |       | Print machine-readable JSON                      |
+| `--verbose`      | `-v` | Show credential helper and finding details       |
+
+### `gcm auth inspect <profile>`
+
+Inspect GCM, external Git, SSH, capabilities, credential helpers, findings, and recommendations for one profile.
+
+```bash
+gcm auth inspect work
+gcm auth inspect work --provider github
+gcm auth inspect work --json
+```
+
+`--provider` is required when the profile has no configured provider. Inspection is read-only; it does not store, adopt, or delete credentials.
+
+### `gcm auth adopt <profile>`
+
+Adopt an exportable external Git credential into GCM's provider-aware token store.
+
+```bash
+gcm auth adopt work --provider github --dry-run
+gcm auth adopt work --provider github --yes
+```
+
+The external credential is verified against the selected provider before it is saved. If the profile already has a different GCM-managed token, GCM asks before replacing it unless `--yes` is supplied.
+
+| Flag             | Short | Description                                      |
+| ---------------- | ----- | ------------------------------------------------ |
+| `--provider`     |       | Provider to adopt; required when profile has no provider |
+| `--dry-run`      |       | Show what would be adopted without writing       |
+| `--yes`          | `-y` | Confirm adoption without prompting               |
+
+### `gcm auth logout <profile>`
+
+Remove credentials safely by ownership scope.
+
+```bash
+gcm auth logout work                         # default: --scope gcm
+gcm auth logout work --scope gcm             # remove only GCM-owned token
+gcm auth logout work --scope external --dry-run
+gcm auth logout work --scope external --yes
+gcm auth logout work --scope all --yes
+```
+
+Default logout only removes GCM-owned credentials. External credential deletion uses `git credential reject` and requires confirmation unless `--yes` is supplied.
+
+| Flag             | Short | Default | Description                                      |
+| ---------------- | ----- | ------- | ------------------------------------------------ |
+| `--scope`        |       | `gcm`   | Credential scope: `gcm`, `external`, or `all`    |
+| `--provider`     |       |         | Provider to log out (`github`, `gitlab`)         |
+| `--dry-run`      |       | false   | Show what would be deleted without writing       |
+| `--yes`          | `-y` | false   | Confirm external credential deletion             |
+| `--json`         |       | false   | Print post-logout status as JSON                 |
+
+### `gcm auth doctor [profile]`
+
+Diagnose auth ownership and helper issues.
+
+```bash
+gcm auth doctor
+gcm auth doctor work --provider github
+gcm auth doctor --json
+```
+
+Findings include missing GCM credential helper registration, external credentials that are not GCM-owned, stale/revoked GCM tokens, mixed credentials, account mismatches, and unauthenticated profiles.
+
+### `gcm auth repair [profile]`
+
+Repair safe local auth configuration issues.
+
+```bash
+gcm auth repair --dry-run
+gcm auth repair --yes
+gcm auth repair work --provider gitlab --json
+```
+
+Current safe repair action: register GCM as the Git credential helper for configured provider hosts when it is missing. It does not delete or adopt external credentials.
+
+| Flag             | Short | Description                                      |
+| ---------------- | ----- | ------------------------------------------------ |
+| `--provider`     |       | Provider to repair (`github`, `gitlab`)          |
+| `--dry-run`      |       | Show repairs without applying them               |
+| `--yes`          | `-y` | Apply repairs without prompting                  |
+| `--json`         |       | Print machine-readable JSON                      |
 
 ---
 
@@ -598,13 +711,13 @@ gcm github login-gh work-github
 
 ### `gcm github status`
 
-Show authentication status for GitHub-scoped profiles.
+Show source-aware authentication status for GitHub-scoped profiles. This delegates to the same resolver as `gcm auth status` and reports ownership/source information.
 
 ```bash
 gcm github status
 ```
 
-**Output columns:** Profile, Status (`authenticated`, `not authenticated`, `token expired`), Username, Method.
+**Output columns:** Profile, Provider, State, Owner, Source, Username, Findings.
 
 ### `gcm github logout <profile>`
 
@@ -676,11 +789,13 @@ For self-managed GitLab, configure `providers.gitlab.api_url`, `providers.gitlab
 
 ### `gcm gitlab status`
 
-Show authentication status for GitLab-scoped profiles.
+Show source-aware authentication status for GitLab-scoped profiles. This delegates to the same resolver as `gcm auth status` and reports ownership/source information.
 
 ```bash
 gcm gitlab status
 ```
+
+**Output columns:** Profile, Provider, State, Owner, Source, Username, Findings.
 
 ### `gcm gitlab logout <profile>`
 
@@ -1011,6 +1126,14 @@ Activation
   gcm current [--short]                         Show active profile
   gcm refresh [--silent]                        Re-evaluate directory
 
+Auth
+  gcm auth status [name] [--provider] [--json]  Source-aware auth status
+  gcm auth inspect <name> [--provider]          Inspect auth sources
+  gcm auth adopt <name> [--provider] [--dry-run] Adopt external auth
+  gcm auth logout <name> [--scope gcm|external|all] Safe logout
+  gcm auth doctor [name] [--json]               Diagnose auth ownership
+  gcm auth repair [name] [--dry-run] [--yes]    Repair safe auth issues
+
 SSH
   gcm ssh generate <name> [-t] [-b] [-c] [-p]  Generate key
   gcm ssh upload <name> [--provider] [--force]  Upload key to provider
@@ -1029,14 +1152,14 @@ GitHub
   gcm github login <name>                       Personal Access Token
   gcm github login-oauth <name>                 OAuth device flow
   gcm github login-gh <name>                    Import from gh CLI
-  gcm github status                             Auth status for all profiles
+  gcm github status                             Source-aware auth status
   gcm github logout <name>                      Remove token
   gcm github verify <name>                      Verify token
   gcm github user <name>                        Show user info
 
 GitLab
   gcm gitlab login <name>                       Personal Access Token
-  gcm gitlab status                             Auth status for all profiles
+  gcm gitlab status                             Source-aware auth status
   gcm gitlab logout <name>                      Remove token
   gcm gitlab verify <name>                      Verify token
   gcm gitlab user <name>                        Show user info

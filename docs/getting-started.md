@@ -106,7 +106,7 @@ gcm validate work      # Validate a specific profile
 | Task | Command | Guide |
 | ---- | ------- | ----- |
 | Generate an SSH key | `gcm ssh generate work` | [usage.md — SSH](usage.md#9-ssh-key-management) |
-| Connect a provider | `gcm connect work --provider github` | [usage.md — GitHub](usage.md#11-github-integration) |
+| Connect a provider | `gcm connect work --provider github` | [usage.md — Provider Auth](usage.md#11-provider-authentication) |
 | Enable GPG signing | `gcm gpg generate work` | [usage.md — GPG](usage.md#10-gpg-commit-signing) |
 | Create team templates | `gcm template import tpl.yaml` | [usage.md — Templates](usage.md#12-templates) |
 | Back up your config | `gcm backup create` | [usage.md — Backup](usage.md#13-backup--restore) |

@@ -14,7 +14,7 @@ GCM supports Git hosting providers through a provider-aware architecture. GitHub
 
 GitLab MVP targets the production-critical profile workflow first: PAT login, token verification, Git credential resolution, status reporting, and SSH/GPG key upload.
 
-Provider-neutral workflows are available through `gcm connect <profile> --provider <id>` and `gcm switch-provider <profile> <id>`. Provider-specific commands such as `gcm github login` and `gcm gitlab login` remain available for users who prefer explicit provider namespaces.
+Provider-neutral workflows are available through `gcm connect <profile> --provider <id>` and `gcm switch-provider <profile> <id>`. Source-aware authentication inspection is available through `gcm auth status`, `gcm auth inspect`, `gcm auth adopt`, `gcm auth logout`, `gcm auth doctor`, and `gcm auth repair`. Provider-specific commands such as `gcm github login` and `gcm gitlab login` remain available for users who prefer explicit provider namespaces.
 
 ---
 
@@ -132,6 +132,23 @@ The structured token payload can hold PATs today and OAuth refresh-token metadat
 ```
 
 Backward compatibility: existing GitHub tokens stored under the old profile-only key still load through the GitHub provider path. `gcm repair --fix` can migrate those legacy entries into provider-aware storage after saving a compatible provider token.
+
+---
+
+## Auth Ownership
+
+GCM separates authentication state from credential ownership:
+
+| Ownership | Meaning |
+| --------- | ------- |
+| `gcm` | Token is stored in GCM's provider-aware token store and is managed by GCM |
+| `external` | Git can authenticate through another helper such as Keychain, Git Credential Manager, GitHub CLI, libsecret, cache, or store |
+| `mixed` | GCM and external credentials are both available |
+| `unknown` | No verified owner could be determined |
+
+`gcm auth status` and provider-specific status commands report state, owner, source, username, and findings. `gcm auth inspect <profile>` shows the helper chain and source-specific details without adopting or deleting credentials.
+
+Adoption is explicit. `gcm auth adopt <profile> --provider <id>` verifies an exportable external credential against the provider API before saving it into GCM storage. Logout is scoped: `gcm auth logout <profile>` removes only GCM-owned credentials by default; external deletion requires `--scope external` or `--scope all` and confirmation.
 
 ---
 

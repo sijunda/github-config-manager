@@ -20,6 +20,8 @@ Set TypingSpeed 50ms
 Hide
 Type "export HOME=$(mktemp -d)"
 Enter
+Type "export GIT_ASKPASS=/bin/false SSH_ASKPASS=/bin/false GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null"
+Enter
 Type "mkdir -p ~/projects/work-api && cd ~/projects/work-api && git init -q"
 Enter
 Type "clear"
@@ -32,7 +34,7 @@ Show
 
 Type "# GCM — Git Config Manager"
 Enter
-Type "# Manage provider-scoped Git identities, SSH keys, GPG keys & accounts"
+Type "# Manage provider-scoped Git identities, auth ownership, SSH keys & GPG keys"
 Enter
 Sleep 2s
 Type "clear"
@@ -180,15 +182,46 @@ Sleep 3s
 Type "gcm gitlab --help"
 Enter
 Sleep 3s
+
+Type "gcm auth --help"
+Enter
+Sleep 3s
 Type "clear"
 Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 8. Profile Validation
+# 8. Auth Ownership
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 8. Validate Profiles ───"
+Type "# ─── 8. Auth Ownership & Sources ───"
+Enter
+Sleep 1s
+
+Type "# GCM reports whether auth is GCM-owned, external, mixed, or missing"
+Enter
+Sleep 1s
+
+Type "gcm auth status work --provider github"
+Enter
+Sleep 3s
+
+Type "gcm auth inspect work --provider github"
+Enter
+Sleep 4s
+
+Type "gcm auth logout work --provider github --scope external --dry-run"
+Enter
+Sleep 3s
+Type "clear"
+Enter
+Sleep 500ms
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 9. Profile Validation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+Type "# ─── 9. Validate Profiles ───"
 Enter
 Sleep 1s
 
@@ -200,10 +233,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 9. System Diagnostics
+# 10. System Diagnostics
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 9. System Health Check ───"
+Type "# ─── 10. System Health Check ───"
 Enter
 Sleep 1s
 
@@ -215,10 +248,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 10. Status Dashboard
+# 11. Status Dashboard
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 10. Status Dashboard ───"
+Type "# ─── 11. Status Dashboard ───"
 Enter
 Sleep 1s
 
@@ -230,10 +263,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 11. Templates
+# 12. Templates
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 11. Configuration Templates ───"
+Type "# ─── 12. Configuration Templates ───"
 Enter
 Sleep 1s
 
@@ -245,10 +278,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 12. Backup & Restore
+# 13. Backup & Restore
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 12. Backup & Restore ───"
+Type "# ─── 13. Backup & Restore ───"
 Enter
 Sleep 1s
 
@@ -264,10 +297,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 13. Shell Integration
+# 14. Shell Integration
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 13. Shell Integration (auto-switch on cd) ───"
+Type "# ─── 14. Shell Integration (auto-switch on cd) ───"
 Enter
 Sleep 1s
 
@@ -279,10 +312,10 @@ Enter
 Sleep 500ms
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 14. Profile Export & Diff
+# 15. Profile Export & Diff
 # ═══════════════════════════════════════════════════════════════════════════════
 
-Type "# ─── 14. Profile Export & Diff ───"
+Type "# ─── 15. Profile Export & Diff ───"
 Enter
 Sleep 1s
 
@@ -309,13 +342,13 @@ Type "#"
 Enter
 Type "#   Profile Management   •  SSH Key Generation  •  GPG Signing"
 Enter
-Type "#   One Provider/Profile •  Credential Isolation •  Shell Hooks"
+Type "#   One Provider/Profile •  Auth Ownership      •  Shell Hooks"
 Enter
 Type "#   Templates            •  Backup & Restore    •  Diagnostics"
 Enter
 Type "#"
 Enter
-Type "#   Install:  go install github.com/justjundana/git-config-manager/cmd/gcm@latest"
+Type "#   Install:  go install github.com/sijunda/git-config-manager/cmd/gcm@latest"
 Enter
 Type "#   Start:    gcm setup"
 Enter

@@ -100,6 +100,7 @@ gcm use <name> --global             # Set as default
 gcm use <name> --local              # Pin to current directory
 gcm ssh generate <name>             # Generate SSH key
 gcm connect <name> --provider github # Authenticate with a provider
+gcm auth status <name> --verbose    # Inspect GCM/external auth ownership
 gcm backup create                   # Back up your config
 gcm doctor                          # Health check
 ```

@@ -59,7 +59,7 @@ shell:
   completion: true               # Enable tab completion
   auto_detect: true              # Auto-detect shell type
 
-# GitHub integration.
+# Legacy GitHub integration block, still supported for backward compatibility.
 github:
   api_url: "https://api.github.com"
   upload_keys: true              # Offer to upload SSH keys to GitHub

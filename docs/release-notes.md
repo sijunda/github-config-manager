@@ -26,6 +26,7 @@ The first public release of GCM.
 - **GPG signing** — generate keys, enable/disable per profile; auto-upload to the configured provider if authenticated
 - **GitHub OAuth device flow** — secure browser-based authentication
 - **Login credential isolation** — logging into a non-active profile stores the token but does not affect git operations until you switch
+- **Source-aware auth ownership** — `gcm auth status|inspect|adopt|logout|doctor|repair` distinguishes GCM-owned tokens from external Git credentials and makes adoption/deletion explicit
 - **Encrypted token storage** — AES-256-GCM with Argon2id (legacy PBKDF2 read-compatible), OS keychain support
 - **Built-in credential helper** — bypasses system keychain (osxkeychain/wincred), serves tokens directly from GCM's encrypted store; immune to VS Code logout or external credential changes
 - **Shell integration** — auto-switch on `cd` for bash, zsh, fish, powershell; `precmd` prompt indicator with `--hide-default` support
@@ -50,8 +51,9 @@ The first public release of GCM.
 | `gcm ssh generate/list/test/copy` | SSH key management |
 | `gcm gpg generate/list/sign enable/sign disable/test` | GPG signing |
 | `gcm github login/login-oauth/login-gh` | GitHub auth (credential-isolated) |
-| `gcm github status/logout/verify/user` | GitHub status & management |
+| `gcm github status/logout/verify/user` | GitHub source-aware status & management |
 | `gcm github logout --clear-credentials` | Remove token + git credentials |
+| `gcm auth status/inspect/adopt/logout/doctor/repair` | Source-aware auth ownership workflows |
 | `gcm template create/list/show/apply/delete/export/import` | Template management |
 | `gcm backup create/list/restore/prune` | Backup management |
 | `gcm init` | Install shell integration + credential helper |

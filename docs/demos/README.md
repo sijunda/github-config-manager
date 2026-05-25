@@ -1,12 +1,12 @@
 # GCM Feature Demo
 
-This folder contains the VHS source for the combined GCM demo. The walkthrough covers profile management, SSH/GPG key management, provider integrations, credential isolation, diagnostics, templates, and backup/restore.
+This folder contains the VHS source for the combined GCM demo. The walkthrough covers profile management, SSH/GPG key management, provider integrations, auth ownership/source inspection, credential isolation, diagnostics, templates, and backup/restore.
 
 ## Demo Source
 
 | Source | Output | Notes |
 | ------ | ------ | ----- |
-| [demo.tape](demo.tape) | [../demo.gif](../demo.gif) | Full CLI walkthrough with provider-scoped GitHub and GitLab commands |
+| [demo.tape](demo.tape) | [../demo.gif](../demo.gif) | Full CLI walkthrough with provider-scoped GitHub/GitLab commands and source-aware auth ownership |
 
 ## Re-recording
 

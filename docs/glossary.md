@@ -66,6 +66,8 @@ Definitions for terms used throughout GCM documentation and source code.
 | **Access token** | The OAuth token received after authorization; stored encrypted |
 | **Token store** | GCM's token storage system with three backends: keychain, encrypted file, plain file |
 | **Credential helper** | A git-compatible credential helper (`gcm credential-helper`) that serves tokens from GCM's encrypted store, bypassing the system keychain |
+| **Auth ownership** | Whether the effective provider credential is owned by GCM, external to GCM, mixed, or unknown |
+| **External credential** | A credential returned by Git's helper chain that is owned by another tool such as Keychain, Git Credential Manager, GitHub CLI, libsecret, cache, or store |
 
 ---
 

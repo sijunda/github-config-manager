@@ -60,6 +60,7 @@ func NewRootCmd() *cobra.Command {
 
 	// ─── Providers ───
 	rootCmd.AddCommand(newConnectCmd())
+	rootCmd.AddCommand(newAuthCmd())
 	rootCmd.AddCommand(newSwitchProviderCmd())
 	rootCmd.AddCommand(newGitHubCmd())
 	rootCmd.AddCommand(newGitLabCmd())

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Changed
 
 ### Added
+- **Source-aware auth commands** — `gcm auth status|inspect|adopt|logout|doctor|repair` distinguish GCM-managed tokens from external Git credentials, support JSON reports, adoption previews, safe logout scopes, and helper repair
 - **`gcm ssh upload` / `gcm gpg upload`** — Standalone commands to upload SSH/GPG keys to the profile's configured provider with automatic duplicate detection. Use `--force` to skip the check
 - **Auto-upload duplicate detection** — `gcm ssh generate` and `gcm gpg generate` now check if the key already exists on the profile's provider before offering to upload, preventing duplicates
 - **Built-in credential helper** — GCM registers itself as git's credential helper for configured provider hosts (`gcm credential-helper`). Git push/pull/clone reads tokens directly from GCM's encrypted store, bypassing the system keychain entirely. External credential store changes (VS Code logout, browser session clear, etc.) no longer break git authentication
@@ -31,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - GitHub OAuth device flow authentication (`gcm github login-oauth`)
 - GitHub Personal Access Token (PAT) authentication (`gcm github login`)
 - GitHub CLI token import (`gcm github login-gh`)
-- GitHub authentication status overview (`gcm github status`)
+- Source-aware GitHub authentication status overview (`gcm github status`)
 - Encrypted token storage (AES-256-GCM)
 - Shell integration for bash, zsh, fish, and powershell
 - Auto-profile switching on directory change via `.gcm-profile`

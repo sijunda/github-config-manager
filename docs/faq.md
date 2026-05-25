@@ -196,7 +196,7 @@ gcm gpg sign disable personal
 
 ---
 
-## GitHub Integration
+## Provider Authentication
 
 ### How does GitHub login work?
 
@@ -213,9 +213,20 @@ No client secret needed. Works over SSH.
 
 By default, in your OS keychain (macOS Keychain, Linux secret-service, Windows Credential Manager). If keychain isn't available, tokens are encrypted with AES-256-GCM and stored in `~/.gcm/tokens/`.
 
+### Why does Git work while GCM says the profile is not authenticated?
+
+Git may be using an external credential from Keychain, Git Credential Manager, GitHub CLI, libsecret, or another helper. GCM reports that as external instead of pretending it owns the token:
+
+```bash
+gcm auth status work --provider github --verbose
+gcm auth inspect work --provider github
+```
+
+If the credential is exportable and belongs to the intended account, adopt it explicitly with `gcm auth adopt work --provider github`. To remove an external credential, preview first with `gcm auth logout work --provider github --scope external --dry-run`.
+
 ### Can I use GCM without GitHub?
 
-Absolutely. GitHub features are optional. You can use GCM purely for Git identity management, SSH keys, and GPG signing.
+Absolutely. GitHub features are optional. You can use GCM with GitLab or purely for Git identity management, SSH keys, and GPG signing.
 
 ### The device flow timed out. What do I do?
 

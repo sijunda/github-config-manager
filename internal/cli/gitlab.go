@@ -290,54 +290,11 @@ func newGitLabStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show GitLab authentication status for GitLab profiles",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			profiles, err := ctr.ProfileManager.List()
-			if err != nil {
-				return err
-			}
 			def, err := gitLabProviderDefinition()
 			if err != nil {
 				return err
 			}
-
-			ui.Header("%s GitLab Authentication Status", ui.IconGlobe)
-			ui.Blank()
-
-			headers := []string{"Profile", "Status", "Username", "Method"}
-			var rows [][]string
-			for _, profileConfig := range profiles {
-				if !profileUsesProvider(profileConfig, providerpkg.GitLabID) {
-					continue
-				}
-				status := ui.Red("not authenticated")
-				username := "-"
-				method := "-"
-
-				token, err := loadProviderToken(profileConfig.Name, def, profileConfig)
-				if err == nil && token.AccessToken != "" {
-					ctr.GitLabClient.SetTokenSet(token)
-					if user, verr := ctr.GitLabClient.GetUser(cmd.Context()); verr == nil {
-						status = ui.Green("authenticated")
-						username = user.Username
-						method = token.AuthMethod
-					} else {
-						status = ui.Yellow("token expired")
-					}
-				}
-				account := providerAccountForProfile(profileConfig, providerpkg.GitLabID)
-				if account.Username != "" && username == "-" {
-					username = account.Username + " (cached)"
-				}
-
-				rows = append(rows, []string{profileConfig.Name, status, username, method})
-			}
-
-			if len(rows) == 0 {
-				ui.Info("No GitLab-scoped profiles found")
-				return nil
-			}
-
-			ui.SimpleTable(headers, rows)
-			return nil
+			return runProviderSpecificAuthStatus(cmd.Context(), def)
 		},
 	}
 }

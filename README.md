@@ -25,6 +25,7 @@
 - 🐙 **GitHub Integration** — OAuth login, token verification, SSH/GPG key upload via API
 - 🦊 **GitLab Integration** — PAT login, token verification, SSH/GPG key upload via API
 - 🛡️ **Credential Isolation** — Git credentials are pinned per profile; no bleed between accounts. Built-in credential helper is immune to external logout (VS Code, browser, etc.)
+- 🔎 **Auth Ownership Inspection** — Distinguish GCM-owned tokens from external Git credentials, adopt intentionally, and log out safely
 - 🐚 **Shell Integration** — Auto-switch profiles on `cd` (bash, zsh, fish, powershell)
 - 📋 **Templates** — Share configuration standards across teams
 - 💾 **Backup & Restore** — Protect your configuration data
@@ -33,6 +34,8 @@
 - 🌍 **Cross-Platform** — macOS, Linux, Windows
 
 ## Demo & Preview
+
+![GCM full demo](docs/demo.gif)
 
 <details>
 <summary><strong>Individual Feature Demos</strong> (click to expand)</summary>
@@ -45,7 +48,7 @@
 | Switch Profiles | ![Switch](docs/demos/04-switch-profiles.gif) |
 | SSH Keys | ![SSH](docs/demos/05-ssh.gif) |
 | GPG Signing | ![GPG](docs/demos/06-gpg.gif) |
-| GitHub Integration | ![GitHub](docs/demos/07-github.gif) |
+| Provider Commands | ![Provider](docs/demos/07-github.gif) |
 | Validate | ![Validate](docs/demos/08-validate.gif) |
 | Doctor | ![Doctor](docs/demos/09-doctor.gif) |
 | Status | ![Status](docs/demos/10-status.gif) |
@@ -153,6 +156,19 @@ echo "$TOKEN" | gcm connect work --provider gitlab --token-stdin --yes
 
 One profile belongs to one provider. Provider changes clean old provider tokens, cached credentials, credential usernames, and uploaded keys when the old token can still access them.
 
+### Authentication Ownership
+```bash
+gcm auth status [profile] --provider github --verbose  # Source-aware auth status
+gcm auth inspect <profile> --provider gitlab            # Inspect GCM/external sources
+gcm auth adopt <profile> --provider github --dry-run    # Preview adopting external auth
+gcm auth logout <profile> --scope gcm                   # Remove GCM-owned token only
+gcm auth logout <profile> --scope external --dry-run    # Preview external credential removal
+gcm auth doctor [profile]                               # Diagnose auth ownership issues
+gcm auth repair --dry-run                               # Preview safe auth repairs
+```
+
+GCM treats its encrypted token store as the source of truth for GCM-owned auth. External credentials from Keychain, Git Credential Manager, GitHub CLI, libsecret, or other helpers are detected and explained, but are only adopted or removed when you explicitly ask.
+
 ### SSH Keys
 ```bash
 gcm ssh generate <profile>      # Generate SSH key (ed25519)
@@ -177,8 +193,8 @@ gcm gpg test <profile>          # Test signing capability
 gcm github login <profile>          # Login with Personal Access Token (PAT)
 gcm github login-oauth <profile>    # OAuth device flow login (browser)
 gcm github login-gh <profile>       # Import token from GitHub CLI (gh)
-gcm github status                   # Show auth status for all profiles
-gcm github logout <profile>         # Remove stored token
+gcm github status                   # Source-aware auth status for GitHub profiles
+gcm github logout <profile>         # Remove stored GitHub token
 gcm github verify <profile>         # Verify authentication
 gcm github user <profile>           # Show user info
 ```
@@ -186,8 +202,8 @@ gcm github user <profile>           # Show user info
 ### GitLab
 ```bash
 gcm gitlab login <profile>      # Login with Personal Access Token (PAT)
-gcm gitlab status               # Show auth status for GitLab profiles
-gcm gitlab logout <profile>     # Remove stored token
+gcm gitlab status               # Source-aware auth status for GitLab profiles
+gcm gitlab logout <profile>     # Remove stored GitLab token
 gcm gitlab verify <profile>     # Verify authentication
 gcm gitlab user <profile>       # Show user info
 ```
@@ -199,6 +215,8 @@ gcm doctor                      # System health check
 gcm repair                      # Inspect local provider/profile consistency
 gcm repair --fix                # Apply safe local repairs
 gcm repair --json               # Machine-readable report
+gcm auth doctor                 # Diagnose auth ownership/source issues
+gcm auth repair --dry-run       # Preview safe auth helper repairs
 ```
 
 ### Shell Integration
@@ -251,6 +269,7 @@ gcm use work --local
 - **GPG keys** use the system keyring — only key IDs are stored
 - **Provider tokens** are encrypted at rest using AES-256-GCM
 - **Credential helper** — GCM serves credentials directly to git from its own encrypted store, immune to external credential changes (VS Code logout, Keychain edits, etc.)
+- **Auth ownership** — `gcm auth` classifies GCM-owned vs external credentials before adoption or deletion
 - **Audit logging** tracks all configuration changes
 - File permissions are validated (600 for keys)
 

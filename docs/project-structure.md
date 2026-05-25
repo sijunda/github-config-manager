@@ -11,6 +11,7 @@ git-config-manager/
 ├── cmd/gcm/main.go           # Entry point
 ├── internal/                  # Private application code
 │   ├── audit/                 # Audit logging
+│   ├── auth/                  # Source-aware auth ownership resolver
 │   ├── backup/                # Backup & restore
 │   ├── cli/                   # Cobra CLI commands
 │   ├── config/                # Configuration management
@@ -65,7 +66,9 @@ The Cobra command layer. Each file owns one top-level command group.
 | `use.go`         | `use`, `current`, `refresh`                           |
 | `ssh.go`         | `ssh generate\|list\|test\|copy`                      |
 | `gpg.go`         | `gpg generate\|list\|sign enable\|sign disable\|test` |
+| `auth.go`        | `auth status\|inspect\|adopt\|logout\|doctor\|repair` |
 | `github.go`      | `github login\|login-oauth\|login-gh\|status\|logout\|verify\|user` |
+| `gitlab.go`      | `gitlab login\|status\|logout\|verify\|user`          |
 | `template.go`    | `template create\|list\|show\|delete\|export\|import\|apply` |
 | `backup.go`      | `backup create\|list\|restore\|prune`                 |
 | `doctor.go`      | `validate`, `doctor`                                  |
@@ -77,6 +80,21 @@ The Cobra command layer. Each file owns one top-level command group.
 | `cli_test.go`    | Tests for CLI commands                                |
 
 **Pattern:** Each command file defines `newXxxCmd() *cobra.Command` which is called by `root.go`.
+
+---
+
+## `internal/auth/`
+
+Source-aware authentication state and credential ownership resolution.
+
+| File                  | Purpose                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `types.go`            | Auth states, ownership/source enums, JSON report structs  |
+| `resolver.go`         | Aggregates GCM token, external Git credential, SSH, capabilities, findings |
+| `git_credentials.go`  | Bounded Git credential helper inspection and rejection    |
+| `*_test.go`           | 100% statement coverage for auth resolver/inspector paths |
+
+This package is provider-neutral and depends on provider definitions, provider-aware token storage, and providerclient verification rather than GitHub/GitLab-specific CLI branches.
 
 ---
 

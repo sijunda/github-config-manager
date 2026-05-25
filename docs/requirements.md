@@ -6,7 +6,7 @@ System requirements and compatibility information for GCM.
 
 ## Overview
 
-GCM is a static Go binary with minimal dependencies. Most features work out of the box. Optional features (GPG signing, GitHub integration, OS keychain) require additional software.
+GCM is a static Go binary with minimal dependencies. Most features work out of the box. Optional features (GPG signing, provider integrations, OS keychain) require additional software.
 
 ---
 

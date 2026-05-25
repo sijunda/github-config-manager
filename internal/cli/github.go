@@ -642,58 +642,11 @@ func newGitHubStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "status", Short: "Show authentication status for GitHub profiles",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			profiles, err := ctr.ProfileManager.List()
-			if err != nil {
-				return err
-			}
 			def, err := githubProviderDefinition()
 			if err != nil {
 				return err
 			}
-
-			ui.Header("%s GitHub Authentication Status", ui.IconGlobe)
-			ui.Blank()
-
-			headers := []string{"Profile", "Status", "Username", "Method"}
-			var rows [][]string
-
-			for _, p := range profiles {
-				if !profileUsesProvider(p, providerpkg.GitHubID) {
-					continue
-				}
-				status := ui.Red("not authenticated")
-				username := "-"
-				method := "-"
-
-				token, err := loadProviderToken(p.Name, def, p)
-				if err == nil && token.AccessToken != "" {
-					ctr.GitHubClient.SetToken(token.AccessToken)
-					if user, verr := ctr.GitHubClient.GetUser(cmd.Context()); verr == nil {
-						status = ui.Green("authenticated")
-						username = user.Login
-						method = token.AuthMethod
-						if method == "" {
-							method = "token"
-						}
-					} else {
-						status = ui.Yellow("token expired")
-					}
-				}
-
-				account := providerAccountForProfile(p, providerpkg.GitHubID)
-				if account.Username != "" && username == "-" {
-					username = account.Username + " (cached)"
-				}
-
-				rows = append(rows, []string{p.Name, status, username, method})
-			}
-			if len(rows) == 0 {
-				ui.Info("No GitHub-scoped profiles found")
-				return nil
-			}
-
-			ui.SimpleTable(headers, rows)
-			return nil
+			return runProviderSpecificAuthStatus(cmd.Context(), def)
 		},
 	}
 }
