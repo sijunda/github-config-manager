@@ -171,7 +171,7 @@ Step 4/4: GitHub (Optional)
 - Your GitHub username (the one in `github.com/YOUR-USERNAME`)
 - Leave empty if you don't use GitHub with this identity, or want to set it up later
 
-**This does NOT log you in.** To authenticate with GitHub's API (upload SSH keys, etc.), you'll separately run `gcm github login <profile>` (PAT) or `gcm github login-oauth <profile>` (browser-based).
+**This does NOT log you in.** To authenticate with a provider API (upload SSH keys, etc.), run `gcm connect <profile> --provider github` or the provider-specific login command.
 
 ---
 

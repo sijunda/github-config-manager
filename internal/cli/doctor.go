@@ -72,7 +72,10 @@ func validateAndPrint(p *profile.Profile) {
 }
 
 func newDoctorCmd() *cobra.Command {
-	return &cobra.Command{
+	var fix bool
+	var yes bool
+
+	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check system health and dependencies",
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -129,20 +132,42 @@ func newDoctorCmd() *cobra.Command {
 
 			// Credential Helper
 			ui.SubHeader("Credential Helper")
-			if IsCredentialHelperConfigured() {
-				ui.Print("  %s GCM registered as git credential helper for github.com", ui.Green(ui.IconSuccess))
+			missingHelpers := missingCredentialHelperServers()
+			if len(missingHelpers) == 0 {
+				ui.Print("  %s GCM registered as git credential helper for configured provider hosts", ui.Green(ui.IconSuccess))
 				ui.Print("    Credentials are served from GCM's encrypted store (immune to external logout)")
 			} else {
-				ui.Print("  %s GCM is NOT the credential helper for github.com", ui.Yellow(ui.IconWarning))
+				ui.Print("  %s GCM is missing credential helper registration for %d provider host(s)", ui.Yellow(ui.IconWarning), len(missingHelpers))
+				for _, server := range missingHelpers {
+					ui.Print("    %s", server)
+				}
 				ui.Print("    Git credentials use the system keychain (can be affected by VS Code logout, etc.)")
-				ui.Print("    Fix: run %s to register GCM as the credential helper", ui.Cyan("gcm init"))
+				ui.Print("    Fix: run %s to register GCM as the credential helper", ui.Cyan("gcm repair --fix"))
 			}
 
 			ui.Blank()
 			ui.Success("Health check complete")
+			if fix {
+				ui.Blank()
+				return runRepair(repairOptions{fix: true, yes: yes})
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&fix, "fix", false, "Run safe repair actions after health checks")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Skip repair confirmation when used with --fix")
+	return cmd
+}
+
+func missingCredentialHelperServers() []string {
+	servers := credentialHelperServers()
+	missing := make([]string, 0, len(servers))
+	for _, server := range servers {
+		if !IsCredentialHelperConfiguredFor(server) {
+			missing = append(missing, server)
+		}
+	}
+	return missing
 }
 
 func checkCommand(label, cmd string, args ...string) {

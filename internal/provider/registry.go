@@ -183,10 +183,6 @@ func GitHubCapabilities() CapabilitySet {
 		CapabilityCredentialHelper: true,
 		CapabilitySSHKeys:          true,
 		CapabilityGPGKeys:          true,
-		CapabilityRepositories:     true,
-		CapabilityGroups:           true,
-		CapabilityWebhooks:         true,
-		CapabilityCICD:             true,
 	}
 }
 
@@ -194,15 +190,9 @@ func GitHubCapabilities() CapabilitySet {
 func GitLabCapabilities() CapabilitySet {
 	return CapabilitySet{
 		CapabilityPATAuth:          true,
-		CapabilityOAuthDeviceAuth:  true,
-		CapabilityOAuthPKCEAuth:    true,
 		CapabilityCredentialHelper: true,
 		CapabilitySSHKeys:          true,
 		CapabilityGPGKeys:          true,
-		CapabilityRepositories:     true,
-		CapabilityGroups:           true,
-		CapabilityWebhooks:         true,
-		CapabilityCICD:             true,
 	}
 }
 

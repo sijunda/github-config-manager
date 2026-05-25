@@ -107,7 +107,7 @@ gcm profile create gh-tokopedia -i
 gcm profile create gh-gojek     -i
 ```
 
-Every command that takes a profile (`gcm use`, `gcm ssh generate`, `gcm github login`, …) takes whatever identifier you chose. See [`docs/usage.md`](docs/usage.md#53-profile-naming--what-should-i-call-them) for the full naming rules, rename recipe, and scenario examples.
+Every command that takes a profile (`gcm use`, `gcm ssh generate`, `gcm connect`, …) takes whatever identifier you chose. See [`docs/usage.md`](docs/usage.md#53-profile-naming--what-should-i-call-them) for the full naming rules, rename recipe, and scenario examples.
 
 ## Commands
 
@@ -134,21 +134,31 @@ gcm current --short --hide-default  # For shell prompts
 gcm refresh                     # Re-evaluate current directory
 ```
 
-> Switching profiles automatically isolates git credentials — `git push`/`clone` will only authenticate as the active profile's GitHub account.
+> Switching profiles automatically isolates git credentials — `git push`/`clone` will only authenticate as the active profile's selected provider account.
+
+### Provider Connection
+```bash
+gcm connect <profile> --provider github       # Provider-neutral PAT login
+gcm connect <profile> --provider gitlab       # Connect to GitLab
+gcm switch-provider <profile> gitlab          # Move a profile to GitLab with cleanup
+echo "$TOKEN" | gcm connect work --provider gitlab --token-stdin --yes
+```
+
+One profile belongs to one provider. Provider changes clean old provider tokens, cached credentials, credential usernames, and uploaded keys when the old token can still access them.
 
 ### SSH Keys
 ```bash
 gcm ssh generate <profile>      # Generate SSH key (ed25519)
-gcm ssh upload <profile>        # Upload SSH key to GitHub (dedup-safe)
+gcm ssh upload <profile>        # Upload SSH key to the profile provider (dedup-safe)
 gcm ssh list                    # List all SSH keys
-gcm ssh test <profile>          # Test GitHub SSH connection
+gcm ssh test <profile>          # Test provider SSH connection
 gcm ssh copy <profile>          # Show public key
 ```
 
 ### GPG Signing
 ```bash
 gcm gpg generate <profile>      # Generate GPG key
-gcm gpg upload <profile>        # Upload GPG key to GitHub (dedup-safe)
+gcm gpg upload <profile>        # Upload GPG key to the profile provider (dedup-safe)
 gcm gpg list                    # List GPG keys
 gcm gpg sign enable <profile>   # Enable commit signing
 gcm gpg sign disable <profile>  # Disable signing
@@ -164,6 +174,24 @@ gcm github status                   # Show auth status for all profiles
 gcm github logout <profile>         # Remove stored token
 gcm github verify <profile>         # Verify authentication
 gcm github user <profile>           # Show user info
+```
+
+### GitLab
+```bash
+gcm gitlab login <profile>      # Login with Personal Access Token (PAT)
+gcm gitlab status               # Show auth status for GitLab profiles
+gcm gitlab logout <profile>     # Remove stored token
+gcm gitlab verify <profile>     # Verify authentication
+gcm gitlab user <profile>       # Show user info
+```
+
+### Diagnostics & Repair
+```bash
+gcm status                      # Dashboard with bounded provider auth checks
+gcm doctor                      # System health check
+gcm repair                      # Inspect local provider/profile consistency
+gcm repair --fix                # Apply safe local repairs
+gcm repair --json               # Machine-readable report
 ```
 
 ### Shell Integration
@@ -214,7 +242,7 @@ gcm use work --local
 
 - **SSH keys** are never stored by GCM — only file paths are managed
 - **GPG keys** use the system keyring — only key IDs are stored
-- **GitHub tokens** are encrypted at rest using AES-256-GCM
+- **Provider tokens** are encrypted at rest using AES-256-GCM
 - **Credential helper** — GCM serves credentials directly to git from its own encrypted store, immune to external credential changes (VS Code logout, Keychain edits, etc.)
 - **Audit logging** tracks all configuration changes
 - File permissions are validated (600 for keys)
@@ -228,7 +256,7 @@ GCM stores its configuration in `~/.gcm/`:
 ├── config.yaml       # Global settings
 ├── profiles/         # Profile YAML files
 ├── templates/        # Configuration templates
-├── tokens/           # Encrypted GitHub tokens
+├── tokens/           # Encrypted provider tokens
 ├── backups/          # Backup archives
 ├── logs/             # Audit logs
 └── cache/            # Temporary cache

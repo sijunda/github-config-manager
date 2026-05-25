@@ -52,7 +52,7 @@
 
 ## 1. What is GCM?
 
-GCM is a command-line tool that manages multiple complete Git identities — not just `user.name` and `user.email`, but also SSH keys, GPG signing keys, GitHub tokens, and editor preferences — and switches between them with one command.
+GCM is a command-line tool that manages multiple complete Git identities — not just `user.name` and `user.email`, but also SSH keys, GPG signing keys, provider tokens, and editor preferences — and switches between them with one command.
 
 **Key features**
 
@@ -60,7 +60,7 @@ GCM is a command-line tool that manages multiple complete Git identities — not
 - Per-directory auto-switching via a `.gcm-profile` file
 - Native SSH key generation (Ed25519 / RSA / ECDSA) with encrypted-at-rest passphrases
 - GPG key generation and per-profile signing toggles
-- GitHub OAuth device-flow login with AES-256-GCM token storage
+- GitHub/GitLab provider login with AES-256-GCM token storage
 - YAML templates for reproducible profile creation
 - Timestamped backup / restore with zip-slip protection
 - JSONL audit log of every state change
@@ -292,12 +292,12 @@ What `gcm use` does:
 
 - Writes Git config (`user.name`, `user.email`, `core.editor`, `commit.gpgsign`, `user.signingkey`)
 - Loads the SSH key into the ssh-agent via `ssh-add` (if configured and key file exists)
-- **Pins `credential.https://github.com.username`** so git only uses this profile's account
+- **Pins provider credential usernames** so git only uses this profile's account
 - If GCM is the credential helper: git will ask GCM dynamically for credentials
 - If GCM is NOT the credential helper (legacy): **clears old credentials** and **stores new credentials** for the profile
-- Verifies the GitHub token validity (best-effort, warns if expired)
+- Verifies provider token validity (best-effort, warns if expired)
 
-> **Credential isolation:** After switching, `git push`/`git clone` will authenticate as the active profile's GitHub account only. Other stored credentials cannot bleed through.
+> **Credential isolation:** After switching, `git push`/`git clone` will authenticate as the active profile's selected provider account only. Other stored credentials cannot bleed through.
 
 > **Smart scope:** Without `--global` or `--local`, GCM uses session scope (`.git/gcm-session`) inside a git repo, or local scope (`.gcm-profile`) outside one. This means `gcm use` **always works** — no "not in a git repository" errors.
 
@@ -486,7 +486,7 @@ metadata:
   updated: 2026-01-15T00:00:00Z
 ```
 
-**What templates do NOT store:** user identity (name, email), SSH keys, GPG keys, or GitHub tokens. Those are per-person and belong in profiles.
+**What templates do NOT store:** user identity (name, email), SSH keys, GPG keys, or provider tokens. Those are per-person and belong in profiles.
 
 **Available commands:**
 
@@ -569,7 +569,7 @@ gcm doctor                 # full environment check
 ├── config.yaml           # global settings
 ├── profiles/             # one YAML file per profile
 ├── templates/            # YAML template blueprints
-├── tokens/        (0700) # encrypted GitHub tokens
+├── tokens/        (0700) # encrypted provider tokens
 ├── backups/       (0700) # timestamped .tar.gz snapshots
 ├── logs/          (0700) # audit-YYYY-MM-DD.jsonl
 └── cache/                # transient

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"git-config-manager/internal/config"
+	"git-config-manager/internal/tokenstore"
 	"git-config-manager/pkg/logger"
 )
 
@@ -40,11 +41,11 @@ type Client struct {
 	apiURL     string
 	token      string
 	httpClient *http.Client
-	tokenStore *TokenStore
+	tokenStore *tokenstore.TokenStore
 }
 
 // NewClient creates a new GitHub client.
-func NewClient(cfg *config.Config, log *logger.Logger, tokenStore *TokenStore) *Client {
+func NewClient(cfg *config.Config, log *logger.Logger, tokenStore *tokenstore.TokenStore) *Client {
 	return &Client{
 		cfg:    cfg,
 		log:    log,

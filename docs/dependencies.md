@@ -36,8 +36,8 @@ GCM keeps its dependency tree small. There are **7 direct dependencies** and **6
 |-|-|
 | **Purpose** | Cross-platform OS keychain access |
 | **License** | MIT |
-| **Used by** | `internal/github/token_store.go` |
-| **Why** | Stores GitHub OAuth tokens securely in the OS credential store (macOS Keychain, Linux secret-service/D-Bus, Windows Credential Manager). Preferred over encrypted file storage. |
+| **Used by** | `internal/tokenstore/token_store.go` |
+| **Why** | Stores provider tokens securely in the OS credential store (macOS Keychain, Linux secret-service/D-Bus, Windows Credential Manager). Preferred over encrypted file storage. |
 
 ### golang.org/x/crypto `v0.51.0`
 

@@ -41,9 +41,9 @@ gcm quickstart   # alias
 **What it does:**
 1. Shell integration (auto-switching, prompt)
 2. Creating your first profile (name, email)
-3. SSH key generation
-4. GPG signing (optional)
-5. Provider authentication (choose one provider for the profile)
+3. Provider authentication (choose one provider for the profile)
+4. SSH key generation with provider-aware filename
+5. GPG signing (optional) and key upload offer when authenticated
 6. Activating your profile
 
 Perfect for first-time users. Run this once and you're fully set up.
@@ -62,6 +62,68 @@ gcm st           # alias
 **Aliases:** `gcm st`
 
 Shows: active profile, all profiles summary, provider auth status, SSH keys, and any issues that need attention.
+
+Provider token checks are bounded-concurrent when `advanced.parallel_operations` is enabled, so status stays responsive with many profiles.
+
+---
+
+## `gcm repair`
+
+Inspect and optionally repair local provider/profile consistency.
+
+```bash
+gcm repair
+gcm repair --fix
+gcm repair --fix --yes
+gcm repair --json
+```
+
+**What it checks:**
+1. Credential helper registration for configured provider hosts
+2. Mixed provider metadata that violates one-profile-one-provider
+3. Provider-aware SSH key filename migration
+4. Legacy GitHub token entries that can be migrated to provider-aware storage
+
+By default, `repair` only reports. `--fix` applies safe local repairs and asks for confirmation unless `--yes` is supplied. `--json` emits a redacted machine-readable report for automation.
+
+---
+
+## `gcm connect <profile>`
+
+Connect a profile to a Git provider using the provider-neutral PAT workflow.
+
+```bash
+gcm connect work --provider github
+gcm connect work --provider gitlab
+echo "$GITLAB_TOKEN" | gcm connect work --provider gitlab --token-stdin --yes
+```
+
+**What it does:**
+1. Verifies the token against the selected provider
+2. Applies the one-provider-per-profile invariant
+3. Cleans old provider data when changing providers
+4. Saves the token in provider-aware storage
+5. Updates git credentials when the profile is active
+6. Offers SSH/GPG upload in interactive mode
+
+| Flag             | Description                                      |
+| ---------------- | ------------------------------------------------ |
+| `--provider`     | Provider to connect (`github`, `gitlab`)         |
+| `--token-stdin`  | Read token from stdin for headless automation    |
+| `--yes`, `-y`    | Confirm provider transition cleanup automatically |
+
+---
+
+## `gcm switch-provider <profile> <provider>`
+
+Move a profile to another provider with explicit cleanup semantics.
+
+```bash
+gcm switch-provider work gitlab
+echo "$GH_TOKEN" | gcm switch-provider work github --token-stdin --yes
+```
+
+This command uses the same verification and cleanup path as `gcm connect`, but requires the target provider as an argument to make the intent explicit.
 
 ---
 
@@ -165,7 +227,7 @@ gcm profile edit work -n "Jane Smith" -e "jane.smith@acme.example"
 | `--name`  | `-n`  | Update `user.name`  |
 | `--email` | `-e`  | Update `user.email` |
 
-Interactive edit can change the profile provider. Provider changes are treated as a destructive transition: GCM confirms first, then removes old provider credentials and remote uploaded keys before saving the new provider account.
+Interactive edit can change the profile provider. Provider changes are treated as a destructive transition: GCM confirms first, then removes old provider credentials and remote uploaded keys before saving the new provider account. For a direct provider login/switch workflow, prefer `gcm connect` or `gcm switch-provider`.
 
 ### `gcm profile delete <name>`
 

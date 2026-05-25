@@ -18,6 +18,7 @@ import (
 
 	"git-config-manager/internal/config"
 	cryptoSvc "git-config-manager/internal/service/crypto"
+	"git-config-manager/internal/tokenstore"
 	"git-config-manager/pkg/logger"
 )
 
@@ -38,10 +39,10 @@ func init() {
 }
 
 // newTestTokenStore creates a TokenStore suitable for testing (plain-text).
-func newTestTokenStore(cfg *config.Config) *TokenStore {
+func newTestTokenStore(cfg *config.Config) *tokenstore.TokenStore {
 	log := logger.New(logger.LevelError, os.Stderr)
 	crypto := cryptoSvc.NewService()
-	return NewTokenStore(cfg, crypto, log, nil)
+	return tokenstore.NewTokenStore(cfg, crypto, log, nil)
 }
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -57,40 +58,6 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	log := logger.New(logger.LevelError, os.Stderr)
 	ts := newTestTokenStore(cfg)
 	return NewClient(cfg, log, ts)
-}
-
-func TestSanitizeTokenPath_RejectsTraversal(t *testing.T) {
-	cases := []string{
-		"../etc/passwd",
-		"..",
-		"foo/bar",
-		"foo\\bar",
-		"..\\evil",
-		"good/../bad",
-		"",
-	}
-	for _, name := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := sanitizeTokenPath(name); err == nil {
-				t.Fatalf("sanitizeTokenPath(%q) should have failed", name)
-			}
-		})
-	}
-}
-
-func TestSanitizeTokenPath_ValidNames(t *testing.T) {
-	cases := []string{"work", "personal", "my-profile", "client_a"}
-	for _, name := range cases {
-		t.Run(name, func(t *testing.T) {
-			path, err := sanitizeTokenPath(name)
-			if err != nil {
-				t.Fatalf("sanitizeTokenPath(%q): %v", name, err)
-			}
-			if path == "" {
-				t.Error("expected non-empty path")
-			}
-		})
-	}
 }
 
 func TestSaveLoadDeleteToken(t *testing.T) {
@@ -133,8 +100,8 @@ func TestLoadToken_InvalidFile(t *testing.T) {
 	ts := newTestTokenStore(cfg)
 	c := NewClient(cfg, log, ts)
 
-	path, _ := sanitizeTokenPath("bad")
-	os.MkdirAll(tmp+"/.gcm/tokens", 0o700)
+	path := filepath.Join(config.GCMDir(), "tokens", "bad")
+	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte(""), 0o600)
 
 	_, err := c.LoadToken("bad")
@@ -738,7 +705,7 @@ func TestDeleteToken_NotExist(t *testing.T) {
 func TestLoadToken_TooShort(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {})
 
-	path, _ := sanitizeTokenPath("short")
+	path := filepath.Join(config.GCMDir(), "tokens", "short")
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	os.WriteFile(path, []byte("   \n"), 0o600)
 
@@ -1478,7 +1445,7 @@ func TestApiPost_MarshalError(t *testing.T) {
 func TestClearGitCredentials_DefaultServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Should not error even if git is not configured
@@ -1491,7 +1458,7 @@ func TestClearGitCredentials_DefaultServer(t *testing.T) {
 func TestClearGitCredentials_CustomServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.ClearGitCredentials("https://github.example.com")
@@ -1503,7 +1470,7 @@ func TestClearGitCredentials_CustomServer(t *testing.T) {
 func TestClearGitCredentials_InvalidURL(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Even with a weird URL, should not error (graceful)
@@ -1516,7 +1483,7 @@ func TestClearGitCredentials_InvalidURL(t *testing.T) {
 func TestStoreGitCredentials_DefaultServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.StoreGitCredentials("", "testuser", "ghp_faketoken123")
@@ -1531,7 +1498,7 @@ func TestStoreGitCredentials_DefaultServer(t *testing.T) {
 func TestStoreGitCredentials_CustomServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.StoreGitCredentials("https://github.example.com", "user", "token123")
@@ -1545,7 +1512,7 @@ func TestStoreGitCredentials_CustomServer(t *testing.T) {
 func TestStoreGitCredentials_BareHost(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.StoreGitCredentials("github.com", "user", "token123")
@@ -1559,7 +1526,7 @@ func TestStoreGitCredentials_BareHost(t *testing.T) {
 func TestSetGitCredentialUsername_Set(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.SetGitCredentialUsername("https://github.example.com", "testuser")
@@ -1574,7 +1541,7 @@ func TestSetGitCredentialUsername_Set(t *testing.T) {
 func TestSetGitCredentialUsername_Unset(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Unset something that doesn't exist — should not error
@@ -1589,7 +1556,7 @@ func TestSetGitCredentialUsername_Unset(t *testing.T) {
 func TestClearGitCredentials_BareHost(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Pass a bare host without scheme - exercises Host=="" fallback to Path
@@ -1602,7 +1569,7 @@ func TestClearGitCredentials_BareHost(t *testing.T) {
 func TestStoreGitCredentials_EmptyServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Empty server should default to https://github.com
@@ -1615,7 +1582,7 @@ func TestStoreGitCredentials_EmptyServer(t *testing.T) {
 func TestClearGitCredentials_EmptyServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.ClearGitCredentials("")
@@ -1627,7 +1594,7 @@ func TestClearGitCredentials_EmptyServer(t *testing.T) {
 func TestImportFromGHCLI_NotInstalled(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Set PATH to empty so gh is not found
@@ -1652,7 +1619,7 @@ func TestImportFromGHCLI_Success(t *testing.T) {
 
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	tok, err := c.ImportFromGHCLI()
@@ -1677,7 +1644,7 @@ func TestImportFromGHCLI_EmptyToken(t *testing.T) {
 
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	_, err := c.ImportFromGHCLI()
@@ -1788,7 +1755,7 @@ func TestPollForToken_LargeBodyTruncation(t *testing.T) {
 func TestClearGitCredentials_URLParseError(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.ClearGitCredentials("http://[::1")
@@ -1800,7 +1767,7 @@ func TestClearGitCredentials_URLParseError(t *testing.T) {
 func TestStoreGitCredentials_URLParseError(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	err := c.StoreGitCredentials("http://[::1", "user", "token")
@@ -1822,7 +1789,7 @@ func TestClearGitCredentials_CmdRunError(t *testing.T) {
 
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Should not return an error (non-fatal)
@@ -1841,7 +1808,7 @@ func TestStoreGitCredentials_CmdRunError(t *testing.T) {
 
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Should not return an error (non-fatal)
@@ -1860,7 +1827,7 @@ func TestSetGitCredentialUsername_CmdRunError_NonEmptyUsername(t *testing.T) {
 
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Should not return an error (non-fatal)
@@ -1877,7 +1844,7 @@ func TestSetGitCredentialUsername_CmdRunError_NonEmptyUsername(t *testing.T) {
 func TestSetGitCredentialUsername_EmptyServer(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// Empty server triggers the default "https://github.com" path
@@ -1892,7 +1859,7 @@ func TestSetGitCredentialUsername_EmptyServer(t *testing.T) {
 func TestSetGitCredentialUsername_UnsetSuccess(t *testing.T) {
 	cfg := plainTextConfig()
 	log := logger.New(logger.LevelError, os.Stderr)
-	ts := NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
+	ts := tokenstore.NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 	c := NewClient(cfg, log, ts)
 
 	// First set a credential username so that unset succeeds (doesn't error)

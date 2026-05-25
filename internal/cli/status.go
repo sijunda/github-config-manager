@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -197,31 +198,34 @@ func runStatus() error {
 			status   string
 			hint     string
 		}
-		entries := make([]providerAuthEntry, 0, len(profiles))
+		entries := make([]providerAuthEntry, len(profiles))
+		authIssues := make([][]string, len(profiles))
 		maxProviderLen := 0
 		maxUserLen := 0
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, statusVerifyConcurrency())
 
-		for _, p := range profiles {
+		for i, p := range profiles {
 			if profileHasMultipleProviders(p) {
-				entries = append(entries, providerAuthEntry{
+				entries[i] = providerAuthEntry{
 					icon:     ui.Yellow(ui.IconWarning),
 					name:     p.Name,
 					provider: "multiple",
 					status:   ui.Yellow("choose one provider"),
 					hint:     fmt.Sprintf("gcm profile edit %s -i", p.Name),
-				})
+				}
 				continue
 			}
 
 			def, ok := profileProviderDefinition(p, providerpkg.CapabilityCredentialHelper)
 			if !ok {
-				entries = append(entries, providerAuthEntry{
+				entries[i] = providerAuthEntry{
 					icon:     ui.Yellow(ui.IconWarning),
 					name:     p.Name,
 					provider: "—",
 					status:   ui.Dim("no provider"),
-					hint:     fmt.Sprintf("gcm profile edit %s -i", p.Name),
-				})
+					hint:     fmt.Sprintf("gcm connect %s --provider <github|gitlab>", p.Name),
+				}
 				continue
 			}
 
@@ -241,38 +245,53 @@ func runStatus() error {
 
 			token, loadErr := loadProviderToken(p.Name, def, p)
 			if loadErr != nil || token.AccessToken == "" {
-				entries = append(entries, providerAuthEntry{
+				entries[i] = providerAuthEntry{
 					icon:     ui.Red(ui.IconError),
 					name:     p.Name,
 					provider: providerName,
 					username: username,
 					status:   ui.Dim("not authenticated"),
-					hint:     fmt.Sprintf("gcm %s login %s", def.ID, p.Name),
-				})
+					hint:     fmt.Sprintf("gcm connect %s --provider %s", p.Name, def.ID),
+				}
 				continue
 			}
 
-			status := ui.Green("valid")
-			icon := ui.Green(ui.IconSuccess)
-			if verifyErr := quickVerifyProviderToken(def, token); verifyErr != nil {
-				if strings.Contains(verifyErr.Error(), "context deadline exceeded") ||
-					strings.Contains(verifyErr.Error(), "timeout") {
-					status = ui.Yellow("timeout")
-					icon = ui.Yellow(ui.IconWarning)
-				} else {
-					status = ui.Red("expired/invalid")
-					icon = ui.Red(ui.IconError)
-					issues = append(issues, fmt.Sprintf("%s token for %q expired — run: gcm %s login %s", def.DisplayName, p.Name, def.ID, p.Name))
-				}
-			}
-
-			entries = append(entries, providerAuthEntry{
-				icon:     icon,
+			entries[i] = providerAuthEntry{
+				icon:     ui.Yellow(ui.IconWarning),
 				name:     p.Name,
 				provider: providerName,
 				username: username,
-				status:   status,
-			})
+				status:   ui.Dim("checking"),
+			}
+
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(idx int, profileName string, def providerpkg.Definition, token providerpkg.TokenSet) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				status := ui.Green("valid")
+				icon := ui.Green(ui.IconSuccess)
+				if verifyErr := quickVerifyProviderToken(def, token); verifyErr != nil {
+					if strings.Contains(verifyErr.Error(), "context deadline exceeded") ||
+						strings.Contains(verifyErr.Error(), "timeout") {
+						status = ui.Yellow("timeout")
+						icon = ui.Yellow(ui.IconWarning)
+					} else {
+						status = ui.Red("expired/invalid")
+						icon = ui.Red(ui.IconError)
+						authIssues[idx] = append(authIssues[idx], fmt.Sprintf("%s token for %q expired — run: gcm connect %s --provider %s", def.DisplayName, profileName, profileName, def.ID))
+					}
+				}
+
+				entries[idx].icon = icon
+				entries[idx].status = status
+			}(i, p.Name, def, token)
+		}
+		wg.Wait()
+
+		for _, profileIssues := range authIssues {
+			issues = append(issues, profileIssues...)
 		}
 
 		if maxProviderLen < 10 {
@@ -359,4 +378,11 @@ func runStatus() error {
 
 	ui.Blank()
 	return nil
+}
+
+func statusVerifyConcurrency() int {
+	if ctr == nil || ctr.Config == nil || !ctr.Config.Advanced.ParallelOperations {
+		return 1
+	}
+	return 4
 }

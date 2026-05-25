@@ -6,7 +6,7 @@ This document describes GCM's security architecture, threat model, encryption de
 
 ## Security Principles
 
-1. **Encrypt secrets at rest** — GitHub tokens are never stored as plain text by default
+1. **Encrypt secrets at rest** — provider tokens are never stored as plain text by default
 2. **Minimal permissions** — Sensitive files get `0600`, sensitive directories `0700`
 3. **No secrets in argv** — Passphrases are never passed as command-line arguments to subprocesses
 4. **Validate all input** — Profile names, GPG batch input, and archive paths are validated
@@ -189,7 +189,7 @@ GCM includes a built-in git credential helper that bypasses the system keychain 
 | -------- | ----------------------------- | -------------------------- |
 | VS Code logout | macOS Keychain entry deleted → `git push` fails | Token served from GCM's store → unaffected |
 | External credential manager change | Git picks up stale/wrong credentials | GCM always serves the active profile's token |
-| Multiple GitHub accounts | System keychain may return wrong token | GCM returns the token for the active profile |
+| Multiple provider accounts | System keychain may return wrong token | GCM returns the token for the active profile |
 
 ### Encryption
 
@@ -263,7 +263,7 @@ Backups include:
 
 Backups **do not** include by default:
 - SSH private keys (controlled by `backup.include_keys`)
-- GitHub tokens
+- Provider tokens
 - Audit logs
 
 ---
@@ -307,7 +307,7 @@ Append-only JSONL files at `~/.gcm/logs/YYYY-MM-DD.jsonl`:
 
 ### GitHub API
 
-- All requests go to `https://api.github.com` (TLS)
+- Provider API requests use configured HTTPS API URLs
 - HTTP client has a 60-second timeout
 - OAuth device flow uses the standard GitHub device authorization endpoint
 - Response bodies are capped at 5 MiB to prevent memory exhaustion
@@ -318,7 +318,7 @@ Append-only JSONL files at `~/.gcm/logs/YYYY-MM-DD.jsonl`:
 GCM does not:
 - Send telemetry or analytics
 - Check for updates automatically
-- Contact any server other than the configured GitHub API URL
+- Contact any server other than configured provider API URLs
 
 ---
 
@@ -326,7 +326,7 @@ GCM does not:
 
 - All data stays on your machine in `~/.gcm/`
 - No data is sent to third parties
-- GitHub tokens are only sent to the GitHub API when you explicitly use `gcm github` commands
+- Provider tokens are only sent to their configured provider API when you explicitly authenticate, verify, upload keys, or run online status checks
 - Audit logs are local-only and never transmitted
 
 ---

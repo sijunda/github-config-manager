@@ -114,10 +114,13 @@ Each file maps to a top-level command:
 - `use.go` — `gcm use`, `gcm current`, `gcm refresh`
 - `ssh.go` — `gcm ssh generate|list|test|copy`
 - `gpg.go` — `gcm gpg generate|list|sign|test`
+- `connect.go` — `gcm connect`, `gcm switch-provider`
 - `github.go` — `gcm github login|login-oauth|login-gh|status|logout|verify|user`
+- `gitlab.go` — `gcm gitlab login|status|logout|verify|user`
 - `template.go` — `gcm template create|list|show|apply|import|export|delete`
 - `backup.go` — `gcm backup create|list|restore|prune`
 - `doctor.go` — `gcm validate`, `gcm doctor`
+- `repair.go` — `gcm repair`, provider/profile consistency repair
 - `credential_helper.go` — `gcm credential-helper get|store|erase` (hidden, called by git)
 - `init_cmd.go` — `gcm init`
 - `clean.go` — `gcm clean`
@@ -143,8 +146,9 @@ type Container struct {
     GPGManager      *gpg.Manager
     GitHubClient    *github.Client
     GitLabClient    *gitlab.Client
+    ProviderClient  *providerclient.Router
     ProviderRegistry *provider.Registry
-    TokenStore      *github.TokenStore
+    TokenStore      *tokenstore.TokenStore
     ShellManager    *shell.Manager
     TemplateManager *template.Manager
     BackupManager   *backup.Manager
@@ -155,12 +159,14 @@ type Container struct {
 
 | Package            | Responsibility                                              |
 | ------------------ | ----------------------------------------------------------- |
-| `internal/profile` | CRUD, validation, switching, activation scopes              |
+| `internal/profile` | CRUD, validation, switching, activation scopes, provider account invariants |
 | `internal/ssh`     | Key generation (Ed25519/RSA/ECDSA), agent management, test  |
 | `internal/gpg`     | Key generation, signing toggle, test signing                |
 | `internal/provider`| Provider IDs, capabilities, host registry, credential username strategy |
-| `internal/github`  | GitHub OAuth device flow, PAT, gh CLI import, user/key APIs, legacy token-store implementation |
+| `internal/providerclient` | Provider-neutral API operation router for verify/upload/delete calls |
+| `internal/github`  | GitHub OAuth device flow, PAT, gh CLI import, user/key APIs |
 | `internal/gitlab`  | GitLab PAT verification and user/SSH/GPG key APIs |
+| `internal/tokenstore` | Provider-neutral token persistence with keychain/encrypted/plain backends |
 | `internal/shell`   | Shell detection, hook generation, install/uninstall         |
 | `internal/template`| Template CRUD, import/export                                |
 | `internal/backup`  | Create/restore/prune tar.gz backups                         |
@@ -209,7 +215,7 @@ func TestSomething(t *testing.T) {
 This pattern is used for:
 - `os.UserHomeDir` / `os.Exit` in `config/types.go`
 - `crypto/rand.Reader` in `service/crypto/service.go`
-- `keyring.Set/Get/Delete` in `github/token_store.go`
+- `keyring.Set/Get/Delete` in `internal/tokenstore/token_store.go`
 - `term.MakeRaw/Restore` in `pkg/ui/interactive.go`
 - `term.ReadPassword` / `isTerminal` in `pkg/ui/prompt.go`
 
@@ -228,7 +234,7 @@ Shell hook generation uses a strategy per shell type (Bash, Zsh, Fish, PowerShel
 
 Provider integrations use a capability-based strategy. The registry resolves a Git credential host to a provider definition; CLI flows then call only the capabilities they need, such as PAT auth, credential helper support, SSH keys, or GPG keys. This keeps future Bitbucket support from requiring another CLI-wide rewrite.
 
-Current tradeoff: provider-aware token APIs live on the historical `internal/github.TokenStore` concrete type for compatibility with existing commands and tests. The behavior is provider-aware; a future cleanup can move the concrete store to `internal/tokenstore` and leave a temporary alias in `internal/github`.
+Provider-aware token APIs live in `internal/tokenstore`, not in any provider package. Provider clients receive tokens from the CLI/application flow and do not own persistence.
 
 ### Template Method
 
@@ -246,7 +252,7 @@ GCM manages state across several locations:
 | Default profile       | `~/.gcm/config.yaml`           | Permanent       |
 | Local profile pin     | `.gcm-profile` (in project)    | Per-directory   |
 | Session profile       | Git config (overwritten)        | Until next `use`|
-| GitHub tokens         | `~/.gcm/tokens/`               | Encrypted       |
+| Provider tokens       | `~/.gcm/tokens/`               | Encrypted       |
 | Audit log             | `~/.gcm/logs/*.jsonl`          | Append-only     |
 | Backups               | `~/.gcm/backups/*.tar.gz`      | Until pruned    |
 | Templates             | `~/.gcm/templates/*.yaml`      | Permanent       |

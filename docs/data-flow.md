@@ -153,12 +153,12 @@ sequenceDiagram
     
     CLI->>ProfileMgr: Update profile SSH config
 
-    alt GitHub token exists for profile
-        CLI-->>User: Upload SSH key to GitHub automatically? [Y/n]
+    alt Provider token exists for profile
+        CLI-->>User: Upload SSH key to provider automatically? [Y/n]
         User-->>CLI: Yes
-        CLI->>GitHub: POST /user/keys (public key)
-        GitHub-->>CLI: 201 Created
-        CLI-->>User: ✓ SSH key uploaded to GitHub!
+        CLI->>Provider: Upload public key
+        Provider-->>CLI: Created
+        CLI-->>User: ✓ SSH key uploaded to provider!
     end
 
     CLI->>AuditLog: Log(ssh.generate, "work")

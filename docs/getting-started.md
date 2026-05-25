@@ -71,7 +71,7 @@ gcm use work
 gcm use work --global
 ```
 
-> **Credential isolation:** When you switch profiles, GCM automatically updates git credentials so `git push`/`git clone` authenticate as the correct GitHub account. No more credential bleed between profiles.
+> **Credential isolation:** When you switch profiles, GCM automatically updates git credentials so `git push`/`git clone` authenticate as the selected provider account. No credential bleed between profiles.
 
 ## Step 6: Create Additional Profiles
 

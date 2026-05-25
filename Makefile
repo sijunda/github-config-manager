@@ -7,7 +7,7 @@ COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE?=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS=-s -w -X $(MODULE)/pkg/version.Version=$(VERSION) -X $(MODULE)/pkg/version.Commit=$(COMMIT) -X $(MODULE)/pkg/version.Date=$(DATE)
 
-.PHONY: build build-all test lint clean install install-system release help
+.PHONY: build build-all test lint fmt verify clean install install-system release help
 
 ## Build
 
@@ -52,8 +52,14 @@ lint: ## Run linters
 	fi
 
 fmt: ## Format code
-	gofmt -s -w .
-	goimports -w .
+	go fmt ./...
+	@if command -v goimports >/dev/null 2>&1; then \
+		goimports -w .; \
+	else \
+		echo "goimports not installed, skipping"; \
+	fi
+
+verify: fmt lint test ## Format, lint, and test everything
 
 ## Install
 

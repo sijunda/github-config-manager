@@ -1,4 +1,4 @@
-// Package github – token_store.go implements secure token persistence with
+// Package tokenstore implements provider-neutral secure token persistence with
 // three storage backends chosen at runtime from the SecurityConfig:
 //
 //  1. OS Keychain  (Security.UseKeychain = true)
@@ -20,7 +20,7 @@
 //
 // Every backend that touches the filesystem goes through sanitizeTokenPath()
 // which prevents path-traversal attacks.
-package github
+package tokenstore
 
 import (
 	"encoding/binary"
@@ -85,7 +85,7 @@ var (
 // dependency on terminal I/O.
 type PromptFunc func(msg string) (string, error)
 
-// TokenStore handles secure persistence of GitHub OAuth tokens.
+// TokenStore handles secure persistence of provider access tokens.
 type TokenStore struct {
 	cfg        *config.Config
 	crypto     *cryptoSvc.Service

@@ -65,7 +65,7 @@ gcm profile create gh-company -i
 gcm ssh generate gh-personal
 gcm ssh generate gh-company
 
-# Keys are auto-uploaded to GitHub if you're logged in (gcm github login <profile>)
+# Keys are auto-uploaded to the profile provider if you're logged in (gcm connect <profile> --provider github)
 # Otherwise, upload manually:
 gcm ssh copy gh-personal | pbcopy  # paste into GitHub settings
 gcm ssh copy gh-company | pbcopy

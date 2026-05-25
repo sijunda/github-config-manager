@@ -132,9 +132,23 @@ func runSetup(ctx context.Context) error {
 	ui.Divider()
 
 	// ═══════════════════════════════════════════════
-	// Step 3: SSH Key
+	// Step 3: Provider Authentication
 	// ═══════════════════════════════════════════════
-	ui.Header("Step 3/6: SSH Key")
+	ui.Header("Step 3/6: Provider Authentication")
+	ui.Print("Connecting a provider lets GCM manage git credentials automatically.")
+	ui.Blank()
+
+	if err := runSetupProviderAuthentication(ctx, profileName); err != nil {
+		return err
+	}
+
+	ui.Blank()
+	ui.Divider()
+
+	// ═══════════════════════════════════════════════
+	// Step 4: SSH Key
+	// ═══════════════════════════════════════════════
+	ui.Header("Step 4/6: SSH Key")
 	ui.Print("SSH keys let you push/pull without passwords.")
 	ui.Blank()
 
@@ -185,9 +199,9 @@ func runSetup(ctx context.Context) error {
 	ui.Divider()
 
 	// ═══════════════════════════════════════════════
-	// Step 4: GPG Signing (optional)
+	// Step 5: GPG Signing (optional)
 	// ═══════════════════════════════════════════════
-	ui.Header("Step 4/6: Commit Signing (Optional)")
+	ui.Header("Step 5/6: Commit Signing (Optional)")
 	ui.Print("GPG signing proves commits came from you (shows 'Verified' badge).")
 	ui.Blank()
 
@@ -228,21 +242,7 @@ func runSetup(ctx context.Context) error {
 		ui.Info("Skipped — you can enable this later with %s", ui.Cyan("gcm gpg generate "+profileName))
 	}
 
-	ui.Blank()
-	ui.Divider()
-
-	// ═══════════════════════════════════════════════
-	// Step 5: Provider Authentication
-	// ═══════════════════════════════════════════════
-	ui.Header("Step 5/6: Provider Authentication")
-	ui.Print("Connecting a provider lets GCM manage git credentials automatically.")
-	ui.Blank()
-
-	if err := runSetupProviderAuthentication(ctx, profileName); err != nil {
-		return err
-	}
-
-	// After provider auth, offer to upload SSH/GPG keys if they exist.
+	// After key generation, offer to upload SSH/GPG keys when provider auth exists.
 	setupUploadKeys(ctx, profileName)
 
 	ui.Blank()

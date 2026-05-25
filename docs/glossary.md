@@ -9,8 +9,8 @@ Definitions for terms used throughout GCM documentation and source code.
 | Term | Definition |
 | ---- | ---------- |
 | **GCM** | Git Config Manager — the CLI tool described in this documentation |
-| **Profile** | A named Git identity containing user info, SSH, GPG, and GitHub configuration |
-| **Identity** | The combination of `user.name`, `user.email`, SSH key, GPG key, and GitHub account that represents "who you are" to Git |
+| **Profile** | A named Git identity containing user info, SSH, GPG, and provider account configuration |
+| **Identity** | The combination of `user.name`, `user.email`, SSH key, GPG key, and provider account that represents "who you are" to Git |
 | **Active profile** | The profile currently applied to your Git configuration in the shell session |
 | **Default profile** | The profile stored in `config.yaml` that activates on shell start when no local profile is pinned |
 

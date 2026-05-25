@@ -14,6 +14,8 @@ GCM supports Git hosting providers through a provider-aware architecture. GitHub
 
 GitLab MVP targets the production-critical profile workflow first: PAT login, token verification, Git credential resolution, status reporting, and SSH/GPG key upload.
 
+Provider-neutral workflows are available through `gcm connect <profile> --provider <id>` and `gcm switch-provider <profile> <id>`. Provider-specific commands such as `gcm github login` and `gcm gitlab login` remain available for users who prefer explicit provider namespaces.
+
 ---
 
 ## Configuration
@@ -129,7 +131,7 @@ The structured token payload can hold PATs today and OAuth refresh-token metadat
 }
 ```
 
-Backward compatibility: existing GitHub tokens stored under the old profile-only key still load through the GitHub provider path.
+Backward compatibility: existing GitHub tokens stored under the old profile-only key still load through the GitHub provider path. `gcm repair --fix` can migrate those legacy entries into provider-aware storage after saving a compatible provider token.
 
 ---
 
@@ -152,8 +154,8 @@ Provider username strategy:
 
 ---
 
-## Implementation Tradeoff
+## Implementation Notes
 
-The provider-aware token APIs are currently implemented on the existing `internal/github.TokenStore` concrete type to preserve compatibility with the current container and tests. The public behavior is provider-aware, but the package name is historical.
+Provider-neutral token storage lives in `internal/tokenstore`. GitHub, GitLab, and future providers use the same storage backend and provider-aware token key format.
 
-Recommended follow-up when Bitbucket work starts: move the token store concrete implementation to a neutral package such as `internal/tokenstore`, then keep a type alias in `internal/github` for one release if API compatibility is needed.
+Provider account invariants live in `internal/profile`, because the profile schema owns the one-provider-per-profile rule. CLI commands should call those profile/provider helpers instead of duplicating provider metadata logic.

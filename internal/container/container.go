@@ -10,11 +10,13 @@ import (
 	"git-config-manager/internal/gpg"
 	"git-config-manager/internal/profile"
 	providerpkg "git-config-manager/internal/provider"
+	"git-config-manager/internal/providerclient"
 	cryptoSvc "git-config-manager/internal/service/crypto"
 	fileSvc "git-config-manager/internal/service/file"
 	"git-config-manager/internal/shell"
 	"git-config-manager/internal/ssh"
 	"git-config-manager/internal/template"
+	"git-config-manager/internal/tokenstore"
 	"git-config-manager/pkg/logger"
 )
 
@@ -31,8 +33,9 @@ type Container struct {
 	GPGManager       *gpg.Manager
 	GitHubClient     *github.Client
 	GitLabClient     *gitlab.Client
+	ProviderClient   *providerclient.Router
 	ProviderRegistry *providerpkg.Registry
-	TokenStore       *github.TokenStore
+	TokenStore       *tokenstore.TokenStore
 	ShellManager     *shell.Manager
 	TemplateManager  *template.Manager
 	BackupManager    *backup.Manager
@@ -41,7 +44,7 @@ type Container struct {
 // SetMasterPasswordPrompt injects the callback used to ask the user for a
 // master password when encrypted-file token storage is active. This must be
 // called before any Save/Load operation that requires a master password.
-func (c *Container) SetMasterPasswordPrompt(fn github.PromptFunc) {
+func (c *Container) SetMasterPasswordPrompt(fn tokenstore.PromptFunc) {
 	c.TokenStore.SetPromptFunc(fn)
 }
 
@@ -51,7 +54,7 @@ func New(cfg *config.Config, log *logger.Logger) *Container {
 	crypto := cryptoSvc.NewService()
 	auditLog := audit.NewLogger(cfg)
 
-	tokenStore := github.NewTokenStore(cfg, crypto, log, nil)
+	tokenStore := tokenstore.NewTokenStore(cfg, crypto, log, nil)
 	ghClient := github.NewClient(cfg, log, tokenStore)
 	registry := providerpkg.NewRegistry(cfg)
 	gitlabCfg := cfg.Providers["gitlab"]
@@ -66,6 +69,7 @@ func New(cfg *config.Config, log *logger.Logger) *Container {
 		}
 	}
 	glClient := gitlab.NewClient(gitlabCfg, log)
+	providerClient := providerclient.NewRouter(ghClient, glClient)
 
 	pm := profile.NewManager(cfg, fs, log)
 	ps := profile.NewSwitcher(cfg, pm, log)
@@ -87,6 +91,7 @@ func New(cfg *config.Config, log *logger.Logger) *Container {
 		GPGManager:       gpgMgr,
 		GitHubClient:     ghClient,
 		GitLabClient:     glClient,
+		ProviderClient:   providerClient,
 		ProviderRegistry: registry,
 		TokenStore:       tokenStore,
 		ShellManager:     shellMgr,

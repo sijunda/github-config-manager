@@ -8,7 +8,7 @@ Frequently asked questions about GCM.
 
 ### What is GCM?
 
-GCM (Git Config Manager) is a CLI tool that manages multiple complete Git identities — `user.name`, `user.email`, SSH keys, GPG signing keys, GitHub tokens, and editor preferences — and switches between them with one command.
+GCM (Git Config Manager) is a CLI tool that manages multiple complete Git identities — `user.name`, `user.email`, SSH keys, GPG signing keys, provider tokens, and editor preferences — and switches between them with one command.
 
 ### Why do I need GCM?
 
@@ -63,7 +63,7 @@ Everything is in `~/.gcm/`:
 ├── config.yaml       # Global settings
 ├── profiles/         # Profile YAML files
 ├── templates/        # Template YAML files
-├── tokens/           # Encrypted GitHub tokens
+├── tokens/           # Encrypted provider tokens
 ├── backups/          # Backup archives
 ├── logs/             # Audit logs
 └── cache/            # Temporary data
@@ -209,7 +209,7 @@ GCM uses the OAuth [device flow](https://docs.github.com/en/apps/oauth-apps/buil
 
 No client secret needed. Works over SSH.
 
-### How are GitHub tokens stored?
+### How are provider tokens stored?
 
 By default, in your OS keychain (macOS Keychain, Linux secret-service, Windows Credential Manager). If keychain isn't available, tokens are encrypted with AES-256-GCM and stored in `~/.gcm/tokens/`.
 
@@ -278,7 +278,7 @@ Depends:
 - All profile YAML files (`~/.gcm/profiles/*.yaml`)
 - All template YAML files (`~/.gcm/templates/*.yaml`)
 
-Not included: SSH keys, GitHub tokens, audit logs.
+Not included: SSH keys, provider tokens, audit logs.
 
 ### Can I restore on a different machine?
 
