@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/sijunda/git-config-manager/internal/audit"
 	"github.com/sijunda/git-config-manager/internal/profile"
@@ -37,16 +39,22 @@ func newSSHGenerateCmd() *cobra.Command {
 		bits       int
 		comment    string
 		passphrase string
+		overwrite  bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "generate <profile>",
-		Short: "Generate a new SSH key for a profile",
-		Long: `Generate a new SSH key pair and associate it with a profile.
+		Short: "Generate or link an SSH key for a profile",
+		Long: `Generate a new SSH key pair or link an existing provider-aware key to a profile.
+
+If the expected local key already exists and the profile has no SSH key
+configured, GCM links that key instead of overwriting it. Use --overwrite only
+when you intentionally want to replace the local key pair at the same path.
 
 Examples:
   gcm ssh generate work --type ed25519
-  gcm ssh generate work --type rsa --bits 4096`,
+  gcm ssh generate work --type rsa --bits 4096
+  gcm ssh generate work --overwrite`,
 		Args: requireArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profileName := args[0]
@@ -66,6 +74,28 @@ Examples:
 				ui.Print("  For secure passphrase entry, omit the flag and you will be prompted interactively.")
 			}
 
+			allowAdopt := !overwrite && passphrase == "" && !cmd.Flags().Changed("comment") && !cmd.Flags().Changed("bits")
+			if allowAdopt {
+				if keyInfo, adopted, adoptErr := adoptExistingSSHKeyForProfile(profileName, p, []string{keyType}); adoptErr != nil {
+					return adoptErr
+				} else if adopted {
+					ui.Info("Existing SSH key found and linked to profile %q", profileName)
+					printSSHKeyDetails(keyInfo)
+					uploadSSHKeyToAuthenticatedProviders(cmd.Context(), profileName, p, keyInfo)
+					ui.NextSteps([]string{
+						fmt.Sprintf("Upload key:     gcm ssh upload %s", profileName),
+						fmt.Sprintf("Test connection: gcm ssh test %s", profileName),
+					})
+					return nil
+				}
+			}
+
+			if overwrite {
+				if expectedPath, pathErr := ctr.SSHManager.ExpectedKeyPath(keyProfileName, keyType); pathErr == nil {
+					ui.Warning("Overwriting local SSH key at %s", expectedPath)
+				}
+			}
+
 			sp := ui.NewSpinner("Generating SSH key...")
 			sp.Start()
 
@@ -75,6 +105,7 @@ Examples:
 				Bits:       bits,
 				Comment:    comment,
 				Passphrase: passphrase,
+				Overwrite:  overwrite,
 			})
 			if err != nil {
 				sp.StopError("Failed to generate SSH key")
@@ -88,12 +119,7 @@ Examples:
 				map[string]string{"type": keyInfo.Type, "path": keyInfo.Path}, nil)
 
 			ui.Blank()
-			ui.Detail("Path", keyInfo.Path)
-			ui.Detail("Type", keyInfo.Type)
-			ui.Detail("Fingerprint", keyInfo.Fingerprint)
-			ui.Blank()
-			ui.Print("Public key:")
-			ui.Print(keyInfo.PublicKey)
+			printSSHKeyDetails(keyInfo)
 
 			// Update profile if it exists
 			if p != nil {
@@ -106,12 +132,7 @@ Examples:
 				_ = ctr.ProfileManager.Update(p)
 			}
 
-			for _, def := range authenticatedProvidersForProfile(profileName, p, providerpkg.CapabilitySSHKeys) {
-				if setupSSHKeyUploadForProvider(cmd.Context(), profileName, p, def, keyInfo.PublicKey, keyInfo.Type) {
-					ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
-						map[string]string{"type": keyInfo.Type, "path": keyInfo.Path, "uploaded": "true", "provider": string(def.ID)}, nil)
-				}
-			}
+			uploadSSHKeyToAuthenticatedProviders(cmd.Context(), profileName, p, keyInfo)
 
 			ui.NextSteps([]string{
 				fmt.Sprintf("Test connection: gcm ssh test %s", profileName),
@@ -125,6 +146,7 @@ Examples:
 	cmd.Flags().IntVarP(&bits, "bits", "b", 4096, "Key bits (RSA only)")
 	cmd.Flags().StringVarP(&comment, "comment", "c", "", "Key comment")
 	cmd.Flags().StringVarP(&passphrase, "passphrase", "p", "", "Key passphrase")
+	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "Replace an existing local key pair at the expected provider-aware path")
 
 	return cmd
 }
@@ -183,6 +205,14 @@ Examples:
 				return profileNotFoundError(args[0])
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
+				if keyInfo, adopted, adoptErr := adoptExistingSSHKeyForProfile(args[0], p, defaultSSHAdoptionKeyTypes()); adoptErr != nil {
+					return adoptErr
+				} else if adopted {
+					ui.Info("Existing SSH key found and linked to profile %q", args[0])
+					ui.Detail("Path", keyInfo.Path)
+				}
+			}
+			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", args[0])
 				ui.Blank()
 				ui.Print("  To generate one: gcm ssh generate %s", args[0])
@@ -229,6 +259,13 @@ func newSSHCopyCmd() *cobra.Command {
 				return profileNotFoundError(args[0])
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
+				if _, adopted, adoptErr := adoptExistingSSHKeyForProfile(args[0], p, defaultSSHAdoptionKeyTypes()); adoptErr != nil {
+					return adoptErr
+				} else if adopted {
+					ui.Info("Existing SSH key found and linked to profile %q", args[0])
+				}
+			}
+			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", args[0])
 				ui.Blank()
 				ui.Print("  To generate one: gcm ssh generate %s", args[0])
@@ -269,6 +306,14 @@ Examples:
 			if err != nil {
 				ui.Error("profile %q not found", profileName)
 				return profileNotFoundError(profileName)
+			}
+			if p.SSH == nil || p.SSH.KeyPath == "" {
+				if keyInfo, adopted, adoptErr := adoptExistingSSHKeyForProfile(profileName, p, defaultSSHAdoptionKeyTypes()); adoptErr != nil {
+					return adoptErr
+				} else if adopted {
+					ui.Info("Existing SSH key found and linked to profile %q", profileName)
+					ui.Detail("Path", keyInfo.Path)
+				}
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", profileName)
@@ -339,4 +384,83 @@ Examples:
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip duplicate check")
 	cmd.Flags().StringVar(&providerName, "provider", "", "Provider to upload to (github, gitlab)")
 	return cmd
+}
+
+func defaultSSHAdoptionKeyTypes() []string {
+	return []string{"ed25519", "rsa", "ecdsa"}
+}
+
+func adoptExistingSSHKeyForProfile(profileName string, p *profile.Profile, keyTypes []string) (*ssh.KeyInfo, bool, error) {
+	if p == nil || (p.SSH != nil && strings.TrimSpace(p.SSH.KeyPath) != "") {
+		return nil, false, nil
+	}
+
+	keyProfileName := sshKeyProfileName(profileName, p)
+	var found []*ssh.KeyInfo
+	for _, keyType := range keyTypes {
+		expectedPath, err := ctr.SSHManager.ExpectedKeyPath(keyProfileName, keyType)
+		if err != nil {
+			return nil, false, err
+		}
+		if _, err := os.Stat(expectedPath); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, false, fmt.Errorf("checking existing SSH key %s: %w", expectedPath, err)
+		}
+
+		keyInfo, err := ctr.SSHManager.InspectKey(expectedPath)
+		if err != nil {
+			return nil, false, fmt.Errorf("existing SSH key found at %s but could not be linked to profile %q: %w\n\n  To replace it: gcm ssh generate %s --type %s --overwrite\n  Or remove the stale key files manually: %s and %s.pub", expectedPath, profileName, err, profileName, keyType, expectedPath, expectedPath)
+		}
+		if keyInfo.Type == "" {
+			keyInfo.Type = keyType
+		}
+		found = append(found, keyInfo)
+	}
+
+	if len(found) == 0 {
+		return nil, false, nil
+	}
+	if len(found) > 1 {
+		var paths []string
+		for _, keyInfo := range found {
+			paths = append(paths, keyInfo.Path)
+		}
+		return nil, false, fmt.Errorf("multiple existing SSH keys match profile %q: %s\n\n  Choose one explicitly with: gcm ssh generate %s --type <type>\n  Or remove the stale key files you do not want to use.", profileName, strings.Join(paths, ", "), profileName)
+	}
+
+	keyInfo := found[0]
+	p.SSH = &profile.SSHConfig{
+		KeyPath:     keyInfo.Path,
+		KeyType:     profile.KeyType(keyInfo.Type),
+		Fingerprint: keyInfo.Fingerprint,
+		Comment:     keyInfo.Comment,
+	}
+	if err := ctr.ProfileManager.Update(p); err != nil {
+		return nil, false, fmt.Errorf("updating profile after linking existing SSH key: %w", err)
+	}
+	return keyInfo, true, nil
+}
+
+func printSSHKeyDetails(keyInfo *ssh.KeyInfo) {
+	ui.Detail("Path", keyInfo.Path)
+	ui.Detail("Type", keyInfo.Type)
+	ui.Detail("Fingerprint", keyInfo.Fingerprint)
+	ui.Blank()
+	ui.Print("Public key:")
+	ui.Print(keyInfo.PublicKey)
+}
+
+func uploadSSHKeyToAuthenticatedProviders(ctx context.Context, profileName string, p *profile.Profile, keyInfo *ssh.KeyInfo) {
+	keyType := keyInfo.Type
+	if keyType == "" {
+		keyType = inferSSHKeyTypeFromPath(keyInfo.Path)
+	}
+	for _, def := range authenticatedProvidersForProfile(profileName, p, providerpkg.CapabilitySSHKeys) {
+		if setupSSHKeyUploadForProvider(ctx, profileName, p, def, keyInfo.PublicKey, keyType) {
+			ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
+				map[string]string{"type": keyType, "path": keyInfo.Path, "uploaded": "true", "provider": string(def.ID)}, nil)
+		}
+	}
 }

@@ -172,11 +172,14 @@ GCM treats its encrypted token store as the source of truth for GCM-owned auth. 
 ### SSH Keys
 ```bash
 gcm ssh generate <profile>      # Generate SSH key (ed25519)
+gcm ssh generate <profile> --overwrite  # Replace existing local key pair explicitly
 gcm ssh upload <profile>        # Upload SSH key to the profile provider (dedup-safe)
 gcm ssh list                    # List all SSH keys
 gcm ssh test <profile>          # Test provider SSH connection
 gcm ssh copy <profile>          # Show public key
 ```
+
+If a deterministic provider-aware key file already exists from an old manual cleanup, for example `id_ed25519_personal_github`, `gcm ssh generate`, `gcm ssh upload`, `gcm ssh test`, and `gcm ssh copy` can link that existing key back to the profile instead of leaving the profile half-configured.
 
 ### GPG Signing
 ```bash

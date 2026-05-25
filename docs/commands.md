@@ -486,7 +486,7 @@ Manage SSH keys. Running `gcm ssh` with no subcommand defaults to `gcm ssh list`
 
 ### `gcm ssh generate <profile>`
 
-Generate a new SSH key pair and associate it with a profile.
+Generate a new SSH key pair or link an existing provider-aware local key to a profile.
 
 ```bash
 gcm ssh generate work                          # Ed25519, no passphrase
@@ -494,6 +494,7 @@ gcm ssh generate work -t rsa -b 4096           # RSA 4096
 gcm ssh generate work -t ecdsa                 # ECDSA P-256
 gcm ssh generate work -c "work laptop"         # custom comment
 gcm ssh generate work -p "my-passphrase"       # with passphrase
+gcm ssh generate work --overwrite              # replace existing local key pair
 ```
 
 | Flag             | Short | Default    | Description                          |
@@ -502,14 +503,19 @@ gcm ssh generate work -p "my-passphrase"       # with passphrase
 | `--bits`         | `-b`  | `4096`     | Key size (RSA only: 2048/3072/4096)  |
 | `--comment`      | `-c`  |            | Comment baked into the key           |
 | `--passphrase`   | `-p`  |            | Key passphrase (encrypted at rest)   |
+| `--overwrite`    |       | `false`    | Replace an existing local key pair at the expected provider-aware path |
 
 **What it does:**
-1. Generates the key pair using Go's native `crypto` library (no subprocess)
-2. Writes private key with `0600` permissions, public key with `0644`
-3. If a passphrase is given, encrypts the private key at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR)
-4. Updates the profile's SSH configuration automatically
-5. Prints the public key for easy copying
-6. If a token is stored for this profile's provider, offers to upload the key to that provider
+1. Uses the deterministic provider-aware local filename, for example `id_ed25519_work_github`
+2. If that exact key pair already exists and the profile has no SSH key configured, links the existing key to the profile instead of failing
+3. Generates a new key pair using Go's native `crypto` library when no matching key exists
+4. Writes private key with `0600` permissions, public key with `0644`
+5. If a passphrase is given, encrypts the private key at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR)
+6. Updates the profile's SSH configuration automatically
+7. Prints the public key for easy copying
+8. If a token is stored for this profile's provider, offers to upload the key to that provider
+
+GCM does not overwrite an existing local SSH key by default. Use `--overwrite` only when you intentionally want to replace the old local key pair while keeping the same deterministic filename and provider upload title.
 
 ### `gcm ssh list`
 
@@ -1135,7 +1141,7 @@ Auth
   gcm auth repair [name] [--dry-run] [--yes]    Repair safe auth issues
 
 SSH
-  gcm ssh generate <name> [-t] [-b] [-c] [-p]  Generate key
+  gcm ssh generate <name> [-t] [-b] [-c] [-p] [--overwrite]  Generate or link key
   gcm ssh upload <name> [--provider] [--force]  Upload key to provider
   gcm ssh list                                  List all keys
   gcm ssh test <name> [--provider]              Test provider connection

@@ -23,6 +23,7 @@ The first public release of GCM.
 - **Smart scope fallback** — `gcm use` works anywhere: session scope in git repos, local scope (`.gcm-profile`) elsewhere. No more "not in a git repository" errors
 - **Three activation scopes** — session (shell only), global (default, clears local overrides), and local (pinned to directory)
 - **SSH key generation** — Ed25519, RSA (2048-4096), ECDSA (P-256) with native Go crypto; auto-upload to the configured provider if authenticated
+- **SSH stale-key recovery** — leftover provider-aware local keys are linked back to profiles after manual GCM cleanup; replacement requires `gcm ssh generate --overwrite`
 - **GPG signing** — generate keys, enable/disable per profile; auto-upload to the configured provider if authenticated
 - **GitHub OAuth device flow** — secure browser-based authentication
 - **Login credential isolation** — logging into a non-active profile stores the token but does not affect git operations until you switch
@@ -48,7 +49,7 @@ The first public release of GCM.
 | `gcm use <profile> --global` | Set default (clears local overrides) |
 | `gcm current` | Show active profile |
 | `gcm current --short --hide-default` | For shell prompts (silent when default) |
-| `gcm ssh generate/list/test/copy` | SSH key management |
+| `gcm ssh generate/list/test/copy/upload` | SSH key management, stale-key recovery, provider upload |
 | `gcm gpg generate/list/sign enable/sign disable/test` | GPG signing |
 | `gcm github login/login-oauth/login-gh` | GitHub auth (credential-isolated) |
 | `gcm github status/logout/verify/user` | GitHub source-aware status & management |

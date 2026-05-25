@@ -112,7 +112,7 @@ Each file maps to a top-level command:
 - `root.go` — Creates the root `gcm` command and registers all subcommands
 - `profile.go` — `gcm profile create|list|show|edit|delete|export|import|diff`
 - `use.go` — `gcm use`, `gcm current`, `gcm refresh`
-- `ssh.go` — `gcm ssh generate|list|test|copy`
+- `ssh.go` — `gcm ssh generate|list|test|copy|upload`
 - `gpg.go` — `gcm gpg generate|list|sign|test`
 - `connect.go` — `gcm connect`, `gcm switch-provider`
 - `github.go` — `gcm github login|login-oauth|login-gh|status|logout|verify|user`

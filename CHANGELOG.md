@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 - **Source-aware auth commands** — `gcm auth status|inspect|adopt|logout|doctor|repair` distinguish GCM-managed tokens from external Git credentials, support JSON reports, adoption previews, safe logout scopes, and helper repair
+- **SSH stale-key recovery** — `gcm ssh generate/upload/test/copy` now link an existing provider-aware local key back to a profile when GCM config was cleaned up but `~/.ssh` files remained; `gcm ssh generate --overwrite` explicitly replaces the local key pair
 - **`gcm ssh upload` / `gcm gpg upload`** — Standalone commands to upload SSH/GPG keys to the profile's configured provider with automatic duplicate detection. Use `--force` to skip the check
 - **Auto-upload duplicate detection** — `gcm ssh generate` and `gcm gpg generate` now check if the key already exists on the profile's provider before offering to upload, preventing duplicates
 - **Built-in credential helper** — GCM registers itself as git's credential helper for configured provider hosts (`gcm credential-helper`). Git push/pull/clone reads tokens directly from GCM's encrypted store, bypassing the system keychain entirely. External credential store changes (VS Code logout, browser session clear, etc.) no longer break git authentication
@@ -56,7 +57,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Logout credential bleed** — `gcm github logout personal` while on `work` profile no longer clears work's git credentials
 - **Profile delete without safeguard** — deleting the active profile now warns and requires extra confirmation
 - **Raw error messages everywhere** — all commands that take a profile name now show a clear `✗ profile "x" not found` with actionable suggestions instead of internal filesystem errors
-- **`gcm ssh test/copy`** — shows `✗ no SSH key configured` with suggestion to generate one, instead of raw error
+- **`gcm ssh test/copy`** — shows `✗ no SSH key configured` with suggestion to generate one, or auto-links a matching leftover provider-aware key before failing
 - **`gcm backup restore`** — validates file exists before prompting for confirmation
 - **`gcm profile import`** — shows clear message when file not found
 - **`gcm validate`** — shows clean "not found" instead of raw YAML path error

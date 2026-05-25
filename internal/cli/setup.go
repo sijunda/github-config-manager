@@ -153,36 +153,50 @@ func runSetup(ctx context.Context) error {
 	if genSSH {
 		p, _ := ctr.ProfileManager.Get(profileName)
 		keyProfileName := sshKeyProfileName(profileName, p)
-
-		sp := ui.NewSpinner("Generating ed25519 SSH key...")
-		sp.Start()
-		keyInfo, genErr := ctr.SSHManager.Generate(ssh.GenerateOptions{
-			Profile: keyProfileName,
-			KeyType: "ed25519",
-		})
-		if genErr != nil {
-			sp.StopError("SSH key generation failed")
-			ui.Warning("%v", genErr)
-		} else {
-			sp.Stop("SSH key generated!")
+		sshHandled := false
+		if keyInfo, adopted, adoptErr := adoptExistingSSHKeyForProfile(profileName, p, []string{"ed25519"}); adoptErr != nil {
+			ui.Warning("%v", adoptErr)
+		} else if adopted {
+			ui.Info("Existing SSH key found and linked to profile %q", profileName)
 			ui.Detail("Path", keyInfo.Path)
 			ui.Detail("Fingerprint", keyInfo.Fingerprint)
-			ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
-				map[string]string{"type": keyInfo.Type, "path": keyInfo.Path}, nil)
-
-			// Update profile with SSH info
-			if p != nil {
-				p.SSH = &profile.SSHConfig{
-					KeyPath:     keyInfo.Path,
-					KeyType:     profile.KeyType(keyInfo.Type),
-					Fingerprint: keyInfo.Fingerprint,
-				}
-				_ = ctr.ProfileManager.Update(p)
-			}
-
 			ui.Blank()
 			ui.Print("Public key (add to GitHub/GitLab → user SSH key settings):")
 			ui.Print("  %s", ui.Dim(keyInfo.PublicKey))
+			sshHandled = true
+		}
+
+		if !sshHandled {
+			sp := ui.NewSpinner("Generating ed25519 SSH key...")
+			sp.Start()
+			keyInfo, genErr := ctr.SSHManager.Generate(ssh.GenerateOptions{
+				Profile: keyProfileName,
+				KeyType: "ed25519",
+			})
+			if genErr != nil {
+				sp.StopError("SSH key generation failed")
+				ui.Warning("%v", genErr)
+			} else {
+				sp.Stop("SSH key generated!")
+				ui.Detail("Path", keyInfo.Path)
+				ui.Detail("Fingerprint", keyInfo.Fingerprint)
+				ctr.AuditLogger.Log(audit.ActionSSHGenerate, profileName,
+					map[string]string{"type": keyInfo.Type, "path": keyInfo.Path}, nil)
+
+				// Update profile with SSH info
+				if p != nil {
+					p.SSH = &profile.SSHConfig{
+						KeyPath:     keyInfo.Path,
+						KeyType:     profile.KeyType(keyInfo.Type),
+						Fingerprint: keyInfo.Fingerprint,
+					}
+					_ = ctr.ProfileManager.Update(p)
+				}
+
+				ui.Blank()
+				ui.Print("Public key (add to GitHub/GitLab → user SSH key settings):")
+				ui.Print("  %s", ui.Dim(keyInfo.PublicKey))
+			}
 		}
 	} else {
 		ui.Info("Skipped — you can run %s later", ui.Cyan(fmt.Sprintf("gcm ssh generate %s", profileName)))

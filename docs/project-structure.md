@@ -64,7 +64,7 @@ The Cobra command layer. Each file owns one top-level command group.
 | `root.go`        | Root `gcm` command; registers all subcommands         |
 | `profile.go`     | `profile create\|list\|show\|edit\|delete\|export\|import\|diff` |
 | `use.go`         | `use`, `current`, `refresh`                           |
-| `ssh.go`         | `ssh generate\|list\|test\|copy`                      |
+| `ssh.go`         | `ssh generate\|list\|test\|copy\|upload`              |
 | `gpg.go`         | `gpg generate\|list\|sign enable\|sign disable\|test` |
 | `auth.go`        | `auth status\|inspect\|adopt\|logout\|doctor\|repair` |
 | `github.go`      | `github login\|login-oauth\|login-gh\|status\|logout\|verify\|user` |

@@ -380,6 +380,7 @@ gcm ssh generate work -t rsa -b 4096       # RSA 4096
 gcm ssh generate work -t ecdsa             # ECDSA P-256
 gcm ssh generate work -c "work@laptop"     # custom comment
 gcm ssh generate work -p "correct-horse"   # passphrase (encrypted at rest)
+gcm ssh generate work --overwrite          # replace existing local key pair
 
 gcm ssh list             # keys across all profiles
 gcm ssh test work        # ssh -T git@github.com using the profile's key
@@ -389,7 +390,11 @@ gcm ssh upload work      # upload key to the profile's provider (duplicate-safe)
 
 Keys are generated with Go's native crypto (no subprocess, no passphrase leaking into argv). Private keys are written `0600`, public keys `0644`. If a passphrase is provided, the private key is encrypted at rest using OpenSSH native format (bcrypt-KDF + AES-256-CTR); the passphrase itself is not stored anywhere.
 
+If the expected provider-aware key already exists, such as `~/.ssh/id_ed25519_work_github`, and the profile has no SSH key configured, `gcm ssh generate` links that key to the profile instead of failing. `gcm ssh upload`, `gcm ssh test`, and `gcm ssh copy` perform the same recovery before reporting that a profile has no SSH key.
+
 If a provider token is stored for the profile (via `gcm connect <profile> --provider <id>`), GCM will offer to upload the SSH key to that provider automatically after generation.
+
+GCM never overwrites an existing local key by default. Use `gcm ssh generate <profile> --overwrite` only when you intentionally want a new key pair at the same deterministic filename and provider upload title.
 
 Flags for `ssh generate`:
 
@@ -399,6 +404,7 @@ Flags for `ssh generate`:
 | `-b, --bits`      | `4096`     | RSA key size (2048/3072/4096)   |
 | `-c, --comment`   | hostname   | Comment baked into the key      |
 | `-p, --passphrase`| *(none)*   | Optional passphrase             |
+| `--overwrite`     | `false`    | Replace existing local key pair |
 
 ---
 
@@ -713,7 +719,7 @@ Auth
   gcm auth repair [name] [--dry-run] [--yes]
 
 SSH
-  gcm ssh generate <name> [-t] [-b] [-c] [-p]
+  gcm ssh generate <name> [-t] [-b] [-c] [-p] [--overwrite]
   gcm ssh upload <name> [--force]
   gcm ssh list | test <name> | copy <name>
 

@@ -73,6 +73,24 @@ gcm profile create work -i
 
 ## SSH Issues
 
+### SSH key file exists but profile has no SSH key configured
+
+This can happen after manually deleting GCM profiles/config while leaving `~/.ssh/id_<type>_<profile>_<provider>` files behind.
+
+```bash
+gcm ssh generate personal
+```
+
+If the leftover key matches GCM's deterministic provider-aware filename, GCM links it back to the profile automatically. The same recovery runs before `gcm ssh upload`, `gcm ssh test`, and `gcm ssh copy` report a missing SSH key.
+
+To intentionally replace the old local key pair, use:
+
+```bash
+gcm ssh generate personal --overwrite
+```
+
+Overwrite keeps the same local filename and provider upload title, but the key material changes. If the old public key was already uploaded to GitHub/GitLab, upload the new key afterward and remove the old remote key if the provider rejects duplicate titles.
+
 ### Permission errors: "Permissions are too open"
 
 SSH requires strict file permissions:

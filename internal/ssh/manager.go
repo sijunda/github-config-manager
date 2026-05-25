@@ -33,6 +33,7 @@ var (
 	sshMkdirFn                    = os.MkdirAll
 	sshRandReader       io.Reader = rand.Reader
 	sshOpenFileFn                 = os.OpenFile
+	sshStatFn                     = os.Stat
 	sshAbsFn                      = filepath.Abs
 	sshLookPathFn                 = exec.LookPath
 	sshMarshalPrivKeyFn           = func(key interface{}, comment string) (*pem.Block, error) {
@@ -64,6 +65,7 @@ type GenerateOptions struct {
 	Bits       int    // For RSA, default 4096
 	Comment    string
 	Passphrase string
+	Overwrite  bool // Replace an existing key pair at the deterministic path.
 }
 
 // KeyInfo holds information about an SSH key.
@@ -95,15 +97,23 @@ func (m *Manager) Generate(opts GenerateOptions) (*KeyInfo, error) {
 		return nil, err
 	}
 
-	// Check if key already exists (refuse to overwrite).
-	if _, err := os.Stat(keyPath); err == nil {
-		return nil, fmt.Errorf("SSH key already exists at %s", keyPath)
-	}
-
 	// Ensure .ssh directory exists with restrictive permissions.
 	dir := filepath.Dir(keyPath)
 	if err := sshMkdirFn(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating SSH directory: %w", err)
+	}
+
+	// Check if key already exists. Refuse by default; overwrite only when the
+	// caller explicitly opted in.
+	if _, err := sshStatFn(keyPath); err == nil {
+		if !opts.Overwrite {
+			return nil, fmt.Errorf("SSH key already exists at %s", keyPath)
+		}
+		if err := removeKeyPair(keyPath); err != nil {
+			return nil, fmt.Errorf("overwriting existing SSH key: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("checking SSH key: %w", err)
 	}
 
 	priv, pub, err := generateKeyPair(opts.KeyType, opts.Bits)
@@ -154,6 +164,68 @@ func (m *Manager) Generate(opts GenerateOptions) (*KeyInfo, error) {
 		Comment:     opts.Comment,
 		PublicKey:   strings.TrimSpace(pubLine),
 	}, nil
+}
+
+// ExpectedKeyPath returns the deterministic private-key path that Generate
+// would use for a profile/key-type pair.
+func (m *Manager) ExpectedKeyPath(profile, keyType string) (string, error) {
+	if keyType == "" {
+		keyType = "ed25519"
+	}
+	return m.keyPath(profile, keyType)
+}
+
+// InspectKey reads an existing key pair and returns metadata suitable for
+// associating it with a profile. It does not modify the key files.
+func (m *Manager) InspectKey(keyPath string) (*KeyInfo, error) {
+	expanded := expandPath(keyPath)
+	info, err := os.Stat(expanded)
+	if err != nil {
+		return nil, fmt.Errorf("reading private key: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("private key path is a directory: %s", expanded)
+	}
+
+	pubData, err := os.ReadFile(expanded + ".pub")
+	if err != nil {
+		return nil, fmt.Errorf("reading public key: %w", err)
+	}
+	pubKey, comment, _, _, err := ssh.ParseAuthorizedKey(pubData)
+	if err != nil {
+		return nil, fmt.Errorf("parsing public key: %w", err)
+	}
+
+	return &KeyInfo{
+		Path:        expanded,
+		Type:        keyTypeFromPublicKeyAlgorithm(pubKey.Type()),
+		Fingerprint: ssh.FingerprintSHA256(pubKey),
+		Comment:     comment,
+		PublicKey:   strings.TrimSpace(string(pubData)),
+	}, nil
+}
+
+func keyTypeFromPublicKeyAlgorithm(algorithm string) string {
+	switch algorithm {
+	case ssh.KeyAlgoED25519:
+		return "ed25519"
+	case ssh.KeyAlgoRSA:
+		return "rsa"
+	}
+	if strings.HasPrefix(algorithm, "ecdsa-") {
+		return "ecdsa"
+	}
+	return strings.TrimPrefix(algorithm, "ssh-")
+}
+
+func removeKeyPair(keyPath string) error {
+	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing private key: %w", err)
+	}
+	if err := os.Remove(keyPath + ".pub"); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("removing public key: %w", err)
+	}
+	return nil
 }
 
 // generateKeyPair generates an SSH key pair for the given type. Returned

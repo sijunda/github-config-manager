@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/sijunda/git-config-manager/internal/profile"
 	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	sshpkg "github.com/sijunda/git-config-manager/internal/ssh"
 )
 
 func TestCloneRestoreProfileProviderStatePreservesProviderAdjacentState(t *testing.T) {
@@ -124,5 +126,49 @@ func TestProviderResourceNameSanitizesComponents(t *testing.T) {
 	got := providerResourceName("Work/Profile", def, "SSH Key", "ED25519")
 	if got != "gcm-work-profile-gitlab-ssh-key-ed25519" {
 		t.Fatalf("providerResourceName = %q", got)
+	}
+}
+
+func TestAdoptExistingSSHKeyForProfile(t *testing.T) {
+	original := ctr
+	t.Cleanup(func() { ctr = original })
+	ctr = newRepairTestContainer(t)
+
+	p := repairTestProfile("personal")
+	profile.SetProviderAccount(p, providerpkg.GitHubID, "octo", providerpkg.AuthMethodPAT)
+	if err := ctr.ProfileManager.Create(p); err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+
+	keyProfileName := sshKeyProfileName("personal", p)
+	generated, err := ctr.SSHManager.Generate(sshpkg.GenerateOptions{Profile: keyProfileName, KeyType: "ed25519", Comment: "gcm-personal-github"})
+	if err != nil {
+		t.Fatalf("generate stale key: %v", err)
+	}
+	p, err = ctr.ProfileManager.Get("personal")
+	if err != nil {
+		t.Fatalf("get profile: %v", err)
+	}
+	if p.SSH != nil {
+		t.Fatalf("test setup should leave SSH unconfigured: %+v", p.SSH)
+	}
+
+	adoptedInfo, adopted, err := adoptExistingSSHKeyForProfile("personal", p, []string{"ed25519"})
+	if err != nil {
+		t.Fatalf("adoptExistingSSHKeyForProfile: %v", err)
+	}
+	if !adopted || adoptedInfo.Path != generated.Path {
+		t.Fatalf("adopted = %v, info = %+v, generated = %+v", adopted, adoptedInfo, generated)
+	}
+
+	stored, err := ctr.ProfileManager.Get("personal")
+	if err != nil {
+		t.Fatalf("get stored profile: %v", err)
+	}
+	if stored.SSH == nil || stored.SSH.KeyPath != generated.Path || stored.SSH.Fingerprint == "" {
+		t.Fatalf("stored SSH config = %+v", stored.SSH)
+	}
+	if _, err := os.Stat(generated.Path); err != nil {
+		t.Fatalf("adoption should not remove key: %v", err)
 	}
 }

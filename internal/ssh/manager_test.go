@@ -142,6 +142,184 @@ func TestGenerate_RefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestGenerate_OverwriteExisting(t *testing.T) {
+	m := newTestManager(t)
+
+	first, err := m.Generate(GenerateOptions{Profile: "work", KeyType: "ed25519", Comment: "old-comment"})
+	if err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+
+	second, err := m.Generate(GenerateOptions{Profile: "work", KeyType: "ed25519", Comment: "new-comment", Overwrite: true})
+	if err != nil {
+		t.Fatalf("overwrite generate: %v", err)
+	}
+	if second.Path != first.Path {
+		t.Fatalf("overwrite path = %q, want %q", second.Path, first.Path)
+	}
+
+	pubKey, err := m.GetPublicKey(second.Path)
+	if err != nil {
+		t.Fatalf("GetPublicKey: %v", err)
+	}
+	if !strings.Contains(pubKey, "new-comment") {
+		t.Fatalf("public key = %q, want new comment", pubKey)
+	}
+}
+
+func TestInspectKey(t *testing.T) {
+	m := newTestManager(t)
+
+	generated, err := m.Generate(GenerateOptions{Profile: "inspect", KeyType: "ed25519", Comment: "inspect-comment"})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	inspected, err := m.InspectKey(generated.Path)
+	if err != nil {
+		t.Fatalf("InspectKey: %v", err)
+	}
+	if inspected.Path != generated.Path || inspected.Type != "ed25519" || inspected.Fingerprint != generated.Fingerprint || inspected.Comment != "inspect-comment" {
+		t.Fatalf("InspectKey = %+v, generated = %+v", inspected, generated)
+	}
+}
+
+func TestInspectKeyErrors(t *testing.T) {
+	m := newTestManager(t)
+
+	if _, err := m.InspectKey(filepath.Join(m.cfg.SSHDir, "missing")); err == nil {
+		t.Fatal("expected missing private key error")
+	}
+
+	dirPath := filepath.Join(m.cfg.SSHDir, "dir-key")
+	if err := os.MkdirAll(dirPath, 0o700); err != nil {
+		t.Fatalf("mkdir dir key: %v", err)
+	}
+	if _, err := m.InspectKey(dirPath); err == nil || !strings.Contains(err.Error(), "directory") {
+		t.Fatalf("directory InspectKey error = %v", err)
+	}
+
+	noPub := filepath.Join(m.cfg.SSHDir, "no-pub")
+	if err := os.WriteFile(noPub, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write no-pub private: %v", err)
+	}
+	if _, err := m.InspectKey(noPub); err == nil || !strings.Contains(err.Error(), "reading public key") {
+		t.Fatalf("missing pub InspectKey error = %v", err)
+	}
+
+	badPub := filepath.Join(m.cfg.SSHDir, "bad-pub")
+	if err := os.WriteFile(badPub, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write bad private: %v", err)
+	}
+	if err := os.WriteFile(badPub+".pub", []byte("not-a-public-key"), 0o644); err != nil {
+		t.Fatalf("write bad pub: %v", err)
+	}
+	if _, err := m.InspectKey(badPub); err == nil || !strings.Contains(err.Error(), "parsing public key") {
+		t.Fatalf("bad pub InspectKey error = %v", err)
+	}
+}
+
+func TestKeyTypeFromPublicKeyAlgorithm(t *testing.T) {
+	cases := map[string]string{
+		ssh.KeyAlgoED25519:    "ed25519",
+		ssh.KeyAlgoRSA:        "rsa",
+		"ecdsa-sha2-nistp256": "ecdsa",
+		"ssh-custom":          "custom",
+	}
+	for input, want := range cases {
+		if got := keyTypeFromPublicKeyAlgorithm(input); got != want {
+			t.Fatalf("keyTypeFromPublicKeyAlgorithm(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestRemoveKeyPair(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "id_ed25519_remove")
+	if err := os.WriteFile(keyPath, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write private: %v", err)
+	}
+	if err := os.WriteFile(keyPath+".pub", []byte("public"), 0o644); err != nil {
+		t.Fatalf("write public: %v", err)
+	}
+	if err := removeKeyPair(keyPath); err != nil {
+		t.Fatalf("removeKeyPair: %v", err)
+	}
+	if _, err := os.Stat(keyPath); !os.IsNotExist(err) {
+		t.Fatalf("private key still exists: %v", err)
+	}
+	if err := removeKeyPair(keyPath); err != nil {
+		t.Fatalf("removeKeyPair missing files should be ok: %v", err)
+	}
+}
+
+func TestRemoveKeyPairErrors(t *testing.T) {
+	dir := t.TempDir()
+	privateDir := filepath.Join(dir, "private-dir")
+	if err := os.MkdirAll(filepath.Join(privateDir, "child"), 0o700); err != nil {
+		t.Fatalf("mkdir private dir: %v", err)
+	}
+	if err := removeKeyPair(privateDir); err == nil || !strings.Contains(err.Error(), "removing private key") {
+		t.Fatalf("private remove error = %v", err)
+	}
+
+	keyPath := filepath.Join(dir, "id_ed25519_pub_error")
+	if err := os.WriteFile(keyPath, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write private: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(keyPath+".pub", "child"), 0o700); err != nil {
+		t.Fatalf("mkdir public dir: %v", err)
+	}
+	if err := removeKeyPair(keyPath); err == nil || !strings.Contains(err.Error(), "removing public key") {
+		t.Fatalf("public remove error = %v", err)
+	}
+}
+
+func TestGenerate_OverwriteRemoveError(t *testing.T) {
+	m := newTestManager(t)
+	keyPath, err := m.ExpectedKeyPath("blocked", "ed25519")
+	if err != nil {
+		t.Fatalf("ExpectedKeyPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(keyPath, "child"), 0o700); err != nil {
+		t.Fatalf("mkdir blocked key path: %v", err)
+	}
+
+	_, err = m.Generate(GenerateOptions{Profile: "blocked", KeyType: "ed25519", Overwrite: true})
+	if err == nil || !strings.Contains(err.Error(), "overwriting existing SSH key") {
+		t.Fatalf("overwrite remove error = %v", err)
+	}
+}
+
+func TestGenerate_StatError(t *testing.T) {
+	m := newTestManager(t)
+	original := sshStatFn
+	t.Cleanup(func() { sshStatFn = original })
+	sshStatFn = func(path string) (os.FileInfo, error) {
+		if strings.HasSuffix(path, "id_ed25519_staterr") {
+			return nil, os.ErrPermission
+		}
+		return os.Stat(path)
+	}
+
+	_, err := m.Generate(GenerateOptions{Profile: "staterr", KeyType: "ed25519"})
+	if err == nil || !strings.Contains(err.Error(), "checking SSH key") {
+		t.Fatalf("stat error = %v", err)
+	}
+}
+
+func TestExpectedKeyPathDefaultsType(t *testing.T) {
+	m := newTestManager(t)
+
+	path, err := m.ExpectedKeyPath("work", "")
+	if err != nil {
+		t.Fatalf("ExpectedKeyPath: %v", err)
+	}
+	if filepath.Base(path) != "id_ed25519_work" {
+		t.Fatalf("ExpectedKeyPath base = %q", filepath.Base(path))
+	}
+}
+
 func TestGenerate_UnsupportedKeyType(t *testing.T) {
 	m := newTestManager(t)
 	if _, err := m.Generate(GenerateOptions{Profile: "p", KeyType: "dsa"}); err == nil {
