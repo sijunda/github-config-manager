@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 // defaultGitTimeout bounds external git command invocations to prevent hangs

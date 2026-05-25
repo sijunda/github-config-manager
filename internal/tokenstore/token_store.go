@@ -14,9 +14,9 @@
 //     prompted once per session through the promptFunc callback and cached
 //     in memory for the process lifetime.
 //
-//  3. Plain-text file  (default fallback)
+//  3. Plain-text file  (Security.AllowPlaintextTokens = true)
 //     Token written with 0600 permissions. Simple, auditable, but relies
-//     solely on filesystem ACLs.
+//     solely on filesystem ACLs and is disabled unless explicitly opted in.
 //
 // Every backend that touches the filesystem goes through sanitizeTokenPath()
 // which prevents path-traversal attacks.
@@ -33,10 +33,10 @@ import (
 	"time"
 	"unicode"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/provider"
-	cryptoSvc "git-config-manager/internal/service/crypto"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/provider"
+	cryptoSvc "github.com/sijunda/git-config-manager/internal/service/crypto"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 
 	"github.com/zalando/go-keyring"
 )
@@ -205,6 +205,9 @@ func (ts *TokenStore) saveTokenValue(storageKey, token string) error {
 	if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
 		return ts.saveEncrypted(storageKey, token)
 	}
+	if !ts.cfg.Security.AllowPlaintextTokens {
+		return plaintextTokenStorageDisabledError()
+	}
 	return ts.savePlain(storageKey, token)
 }
 
@@ -215,6 +218,9 @@ func (ts *TokenStore) loadTokenValue(storageKey string) (string, error) {
 	if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
 		return ts.loadEncrypted(storageKey)
 	}
+	if !ts.cfg.Security.AllowPlaintextTokens {
+		return "", plaintextTokenStorageDisabledError()
+	}
 	return ts.loadPlain(storageKey)
 }
 
@@ -223,6 +229,10 @@ func (ts *TokenStore) deleteTokenValue(storageKey string) error {
 		return ts.deleteKeychain(storageKey)
 	}
 	return ts.deleteFile(storageKey)
+}
+
+func plaintextTokenStorageDisabledError() error {
+	return fmt.Errorf("plaintext token storage disabled; enable security.use_keychain, enable security.encrypt_tokens with security.master_password, or explicitly set security.allow_plaintext_tokens")
 }
 
 func providerTokenStorageKey(key provider.TokenKey) (string, error) {
@@ -284,12 +294,13 @@ func isLegacyGitHubTokenKey(key provider.TokenKey) bool {
 
 func (ts *TokenStore) saveKeychain(profile, token string) error {
 	if err := keyringSet(keychainService, profile, token); err != nil {
-		// Graceful fallback: if keychain is unavailable (headless Linux, no D-Bus,
-		// CI/CD, SSH session), fall back to file-based storage instead of failing.
-		ts.log.Debug("Keychain unavailable, falling back to file storage",
+		ts.log.Debug("Keychain unavailable",
 			logger.F("error", err.Error()), logger.F("profile", profile))
 		if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
 			return ts.saveEncrypted(profile, token)
+		}
+		if !ts.cfg.Security.AllowPlaintextTokens {
+			return fmt.Errorf("saving token to keychain: %w; %v", err, plaintextTokenStorageDisabledError())
 		}
 		return ts.savePlain(profile, token)
 	}
@@ -300,16 +311,17 @@ func (ts *TokenStore) saveKeychain(profile, token string) error {
 func (ts *TokenStore) loadKeychain(profile string) (string, error) {
 	token, err := keyringGet(keychainService, profile)
 	if err != nil {
-		// Graceful fallback: try file-based storage if keychain is unavailable.
-		ts.log.Debug("Keychain read failed, trying file fallback",
+		ts.log.Debug("Keychain read failed",
 			logger.F("error", err.Error()), logger.F("profile", profile))
 		if ts.cfg.Security.EncryptTokens && ts.cfg.Security.MasterPassword {
 			if t, e := ts.loadEncrypted(profile); e == nil {
 				return t, nil
 			}
 		}
-		if t, e := ts.loadPlain(profile); e == nil {
-			return t, nil
+		if ts.cfg.Security.AllowPlaintextTokens {
+			if t, e := ts.loadPlain(profile); e == nil {
+				return t, nil
+			}
 		}
 		return "", fmt.Errorf("loading token from keychain: %w", err)
 	}
@@ -468,12 +480,18 @@ func (ts *TokenStore) ZeroPassword() {
 // ---------------------------------------------------------------------------
 
 func (ts *TokenStore) savePlain(profile, token string) error {
+	if !ts.cfg.Security.AllowPlaintextTokens {
+		return plaintextTokenStorageDisabledError()
+	}
 	ts.log.Debug("Saving token in plain-text mode (file permissions only)",
 		logger.F("profile", profile))
 	return ts.writeTokenFile(profile, []byte(token))
 }
 
 func (ts *TokenStore) loadPlain(profile string) (string, error) {
+	if !ts.cfg.Security.AllowPlaintextTokens {
+		return "", plaintextTokenStorageDisabledError()
+	}
 	payload, err := ts.readTokenFile(profile)
 	if err != nil {
 		return "", err

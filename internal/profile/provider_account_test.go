@@ -3,7 +3,7 @@ package profile
 import (
 	"testing"
 
-	providerpkg "git-config-manager/internal/provider"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
 )
 
 func TestSetProviderAccountEnforcesSingleProviderAndLegacyGitHubSync(t *testing.T) {

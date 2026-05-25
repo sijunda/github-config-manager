@@ -3,13 +3,15 @@ package backup
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 func testManager(t *testing.T) (*Manager, string) {
@@ -26,6 +28,92 @@ func testManager(t *testing.T) (*Manager, string) {
 
 	log := logger.New(logger.LevelError, os.Stderr)
 	return NewManager(cfg, log), tmp
+}
+
+func isolateBackupHooks(t *testing.T) {
+	t.Helper()
+	oldOpenFileFn := osOpenFileFn
+	oldAbsFn := backupAbsFn
+	oldRelFn := backupRelFn
+	oldMkdirFn := backupMkdirFn
+	oldRemoveFn := backupRemoveFn
+	oldReadDirFn := backupReadDirFn
+	oldRestoreMkdirTempFn := restoreMkdirTempFn
+	oldRestoreMkdirFn := restoreMkdirFn
+	oldRestoreRemoveFn := restoreRemoveFn
+	oldRestoreRenameFn := restoreRenameFn
+	oldRestoreChmodFn := restoreChmodFn
+	oldRestoreLstatFn := restoreLstatFn
+	oldRestoreStatFn := restoreStatFn
+	oldRestoreRelFn := restoreRelFn
+	oldRestoreEntryInfoFn := restoreEntryInfoFn
+	t.Cleanup(func() {
+		osOpenFileFn = oldOpenFileFn
+		backupAbsFn = oldAbsFn
+		backupRelFn = oldRelFn
+		backupMkdirFn = oldMkdirFn
+		backupRemoveFn = oldRemoveFn
+		backupReadDirFn = oldReadDirFn
+		restoreMkdirTempFn = oldRestoreMkdirTempFn
+		restoreMkdirFn = oldRestoreMkdirFn
+		restoreRemoveFn = oldRestoreRemoveFn
+		restoreRenameFn = oldRestoreRenameFn
+		restoreChmodFn = oldRestoreChmodFn
+		restoreLstatFn = oldRestoreLstatFn
+		restoreStatFn = oldRestoreStatFn
+		restoreRelFn = oldRestoreRelFn
+		restoreEntryInfoFn = oldRestoreEntryInfoFn
+	})
+}
+
+type testArchiveEntry struct {
+	name string
+	typ  byte
+	mode int64
+	data []byte
+}
+
+func writeTestArchive(t *testing.T, entries ...testArchiveEntry) string {
+	t.Helper()
+	archivePath := filepath.Join(t.TempDir(), "test.tar.gz")
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+	for _, entry := range entries {
+		typ := entry.typ
+		if typ == 0 {
+			typ = tar.TypeReg
+		}
+		mode := entry.mode
+		if mode == 0 {
+			mode = 0o600
+		}
+		header := &tar.Header{Name: entry.name, Typeflag: typ, Mode: mode, Size: int64(len(entry.data))}
+		if typ == tar.TypeDir {
+			header.Size = 0
+		}
+		if err := tw.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Size > 0 {
+			if _, err := tw.Write(entry.data); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archivePath
 }
 
 func TestCreateAndList(t *testing.T) {
@@ -121,6 +209,26 @@ func TestBackupFilePermissions(t *testing.T) {
 	}
 }
 
+func TestCreate_EncryptedBackupFailsClosed(t *testing.T) {
+	m, _ := testManager(t)
+	m.cfg.Backup.Encryption = true
+
+	_, err := m.Create()
+	if err == nil || !strings.Contains(err.Error(), "encrypted backups are not implemented") {
+		t.Fatalf("expected encrypted backup fail-closed error, got: %v", err)
+	}
+}
+
+func TestCreate_IncludeKeysFailsClosed(t *testing.T) {
+	m, _ := testManager(t)
+	m.cfg.Backup.IncludeKeys = true
+
+	_, err := m.Create()
+	if err == nil || !strings.Contains(err.Error(), "backup.include_keys") {
+		t.Fatalf("expected include_keys fail-closed error, got: %v", err)
+	}
+}
+
 func TestListEmpty(t *testing.T) {
 	m, _ := testManager(t)
 
@@ -182,6 +290,51 @@ func TestRestore_ZipSlipRejected(t *testing.T) {
 	err = m.Restore(malPath)
 	if err == nil {
 		t.Fatal("expected error for zip-slip path")
+	}
+}
+
+func TestRestore_ExtractionFailureLeavesExistingDataUnchanged(t *testing.T) {
+	m, tmp := testManager(t)
+
+	profilePath := filepath.Join(tmp, ".gcm", "profiles", "current.yaml")
+	if err := os.WriteFile(profilePath, []byte("name: original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	archivePath := filepath.Join(t.TempDir(), "partial-fail.tar.gz")
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+
+	changed := []byte("name: changed\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "profiles/current.yaml", Typeflag: tar.TypeReg, Mode: 0o600, Size: int64(len(changed))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: "../evil", Typeflag: tar.TypeReg, Mode: 0o600, Size: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("evil")); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gzw.Close()
+	f.Close()
+
+	if err := m.Restore(archivePath); err == nil {
+		t.Fatal("expected restore extraction failure")
+	}
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "name: original\n" {
+		t.Fatalf("profile changed despite failed restore: %q", string(data))
 	}
 }
 
@@ -275,6 +428,94 @@ func TestPrune_KeepLessThanOne(t *testing.T) {
 	_, err := m.Prune(0)
 	if err == nil {
 		t.Fatal("expected error for keep < 1")
+	}
+}
+
+func TestPruneOlderThan(t *testing.T) {
+	m, tmp := testManager(t)
+	backupDir := filepath.Join(tmp, ".gcm", "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := filepath.Join(backupDir, "gcm-backup-old.tar.gz")
+	newPath := filepath.Join(backupDir, "gcm-backup-new.tar.gz")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldTime := time.Now().AddDate(0, 0, -45)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := m.PruneOlderThan(time.Now().AddDate(0, 0, -30))
+	if err != nil {
+		t.Fatalf("PruneOlderThan: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old backup still exists or unexpected stat error: %v", err)
+	}
+	if _, err := os.Stat(newPath); err != nil {
+		t.Fatalf("new backup removed unexpectedly: %v", err)
+	}
+}
+
+func TestEnforceRetentionHandlesPruneErrors(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	m.cfg.Backup.RetentionDays = 30
+	m.cfg.Backup.MaxBackups = 1
+	backupReadDirFn = func(string) ([]os.DirEntry, error) {
+		return nil, fmt.Errorf("read boom")
+	}
+
+	m.enforceRetention()
+}
+
+func TestEnforceRetentionPrunesByAgeAndCount(t *testing.T) {
+	m, tmp := testManager(t)
+	m.cfg.Backup.RetentionDays = 30
+	m.cfg.Backup.MaxBackups = 1
+	backupDir := filepath.Join(tmp, ".gcm", "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	oldPath := filepath.Join(backupDir, "gcm-backup-old.tar.gz")
+	newPath := filepath.Join(backupDir, "gcm-backup-new.tar.gz")
+	newerPath := filepath.Join(backupDir, "gcm-backup-newer.tar.gz")
+	for _, path := range []string{oldPath, newPath, newerPath} {
+		if err := os.WriteFile(path, []byte("backup"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Now().AddDate(0, 0, -45)
+	newTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newPath, newTime, newTime); err != nil {
+		t.Fatal(err)
+	}
+
+	m.enforceRetention()
+
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old backup still exists or stat failed: %v", err)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].Path != newerPath {
+		t.Fatalf("remaining backups = %+v, want only %s", list, newerPath)
 	}
 }
 
@@ -1071,6 +1312,324 @@ func TestRestore_CorruptTarEntryV2(t *testing.T) {
 	err = m.Restore(archivePath)
 	if err == nil {
 		t.Fatal("expected error for corrupted tar")
+	}
+}
+
+func TestRestore_CreateGCMDirError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	backupMkdirFn = func(string, os.FileMode) error { return fmt.Errorf("mkdir boom") }
+
+	if err := m.Restore("missing.tar.gz"); err == nil || !strings.Contains(err.Error(), "creating GCM directory") {
+		t.Fatalf("Restore error = %v", err)
+	}
+}
+
+func TestExtractArchive_StagingAbsError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	archivePath := writeTestArchive(t)
+	backupAbsFn = func(string) (string, error) { return "", fmt.Errorf("abs boom") }
+
+	if err := m.extractArchive(archivePath, t.TempDir()); err == nil || !strings.Contains(err.Error(), "resolving restore staging dir") {
+		t.Fatalf("extractArchive error = %v", err)
+	}
+}
+
+func TestExtractArchive_CreateDirectoryError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	archivePath := writeTestArchive(t, testArchiveEntry{name: "profiles/test.yaml", data: []byte("name: test\n")})
+	restoreMkdirFn = func(string, os.FileMode) error { return fmt.Errorf("mkdir boom") }
+
+	if err := m.extractArchive(archivePath, t.TempDir()); err == nil || !strings.Contains(err.Error(), "creating directory") {
+		t.Fatalf("extractArchive error = %v", err)
+	}
+}
+
+func TestExtractArchive_CreateFileError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	archivePath := writeTestArchive(t, testArchiveEntry{name: "profiles/test.yaml", data: []byte("name: test\n")})
+	osOpenFileFn = func(string, int, os.FileMode) (*os.File, error) { return nil, fmt.Errorf("open boom") }
+
+	if err := m.extractArchive(archivePath, t.TempDir()); err == nil || !strings.Contains(err.Error(), "creating file") {
+		t.Fatalf("extractArchive error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_RollbackTempError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	restoreMkdirTempFn = func(string, string) (string, error) { return "", fmt.Errorf("mkdtemp boom") }
+
+	if err := m.applyStagedRestore(t.TempDir(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "creating restore rollback directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_WalkError(t *testing.T) {
+	m, _ := testManager(t)
+
+	if err := m.applyStagedRestore(filepath.Join(t.TempDir(), "missing"), t.TempDir()); err == nil {
+		t.Fatal("expected walk error for missing staging dir")
+	}
+}
+
+func TestApplyStagedRestore_RelError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("name: rel\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreRelFn = func(string, string) (string, error) { return "", fmt.Errorf("rel boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "rel boom") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_RollbackRestoresChangesAndCreatedDirs(t *testing.T) {
+	m, _ := testManager(t)
+	stagingDir := t.TempDir()
+	gcmDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(stagingDir, "a_created"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingDir, "b_existing.txt"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(stagingDir, "c_block"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gcmDir, "b_existing.txt"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gcmDir, "c_block"), []byte("not a dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.applyStagedRestore(stagingDir, gcmDir); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(gcmDir, "b_existing.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("rollback did not restore original file: %q", string(data))
+	}
+	if _, err := os.Stat(filepath.Join(gcmDir, "a_created")); !os.IsNotExist(err) {
+		t.Fatalf("rollback did not remove created dir: %v", err)
+	}
+}
+
+func TestApplyStagedRestore_DirectoryStatError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(stagingDir, "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	restoreStatFn = func(string) (os.FileInfo, error) { return nil, fmt.Errorf("stat boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "checking restore directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_DirectoryMkdirError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(stagingDir, "dir"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	restoreMkdirFn = func(string, os.FileMode) error { return fmt.Errorf("mkdir boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "creating directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_TargetCheckError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("name: target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreLstatFn = func(string) (os.FileInfo, error) { return nil, fmt.Errorf("lstat boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "checking restore target") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_EntryInfoError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("name: info\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreEntryInfoFn = func(os.DirEntry) (os.FileInfo, error) { return nil, fmt.Errorf("info boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "reading staged file info") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_FileParentMkdirError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	gcmDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("name: mkdir\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreMkdirFn = func(path string, _ os.FileMode) error {
+		if path == gcmDir {
+			return fmt.Errorf("mkdir boom")
+		}
+		return os.MkdirAll(path, 0o700)
+	}
+
+	if err := m.applyStagedRestore(stagingDir, gcmDir); err == nil || !strings.Contains(err.Error(), "creating directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_RollbackDirectoryError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	gcmDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gcmDir, "file.yaml"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreMkdirFn = func(path string, mode os.FileMode) error {
+		if strings.Contains(path, ".restore-rollback-") {
+			return fmt.Errorf("rollback mkdir boom")
+		}
+		return os.MkdirAll(path, mode)
+	}
+
+	if err := m.applyStagedRestore(stagingDir, gcmDir); err == nil || !strings.Contains(err.Error(), "creating rollback directory") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_StageExistingRenameError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	gcmDir := t.TempDir()
+	target := filepath.Join(gcmDir, "file.yaml")
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreRenameFn = func(oldPath, newPath string) error {
+		if oldPath == target {
+			return fmt.Errorf("rename boom")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	if err := m.applyStagedRestore(stagingDir, gcmDir); err == nil || !strings.Contains(err.Error(), "staging existing file for rollback") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestApplyStagedRestore_ApplyRenameErrorRollsBackOriginal(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	gcmDir := t.TempDir()
+	staged := filepath.Join(stagingDir, "file.yaml")
+	target := filepath.Join(gcmDir, "file.yaml")
+	if err := os.WriteFile(staged, []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreRenameFn = func(oldPath, newPath string) error {
+		if oldPath == staged {
+			return fmt.Errorf("apply boom")
+		}
+		return os.Rename(oldPath, newPath)
+	}
+
+	if err := m.applyStagedRestore(stagingDir, gcmDir); err == nil || !strings.Contains(err.Error(), "applying restored file") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("original file not restored: %q", string(data))
+	}
+}
+
+func TestApplyStagedRestore_ChmodError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	stagingDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stagingDir, "file.yaml"), []byte("name: chmod\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreChmodFn = func(string, os.FileMode) error { return fmt.Errorf("chmod boom") }
+
+	if err := m.applyStagedRestore(stagingDir, t.TempDir()); err == nil || !strings.Contains(err.Error(), "setting restored file permissions") {
+		t.Fatalf("applyStagedRestore error = %v", err)
+	}
+}
+
+func TestPruneOlderThanListError(t *testing.T) {
+	m, _ := testManager(t)
+	isolateBackupHooks(t)
+	backupReadDirFn = func(string) ([]os.DirEntry, error) { return nil, fmt.Errorf("read boom") }
+
+	if _, err := m.PruneOlderThan(time.Now()); err == nil || !strings.Contains(err.Error(), "reading backups directory") {
+		t.Fatalf("PruneOlderThan error = %v", err)
+	}
+}
+
+func TestPruneOlderThanRemoveError(t *testing.T) {
+	m, tmp := testManager(t)
+	isolateBackupHooks(t)
+	backupDir := filepath.Join(tmp, ".gcm", "backups")
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(backupDir, "gcm-backup-old.tar.gz")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().AddDate(0, 0, -45)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	backupRemoveFn = func(string) error { return fmt.Errorf("remove boom") }
+
+	removed, err := m.PruneOlderThan(time.Now().AddDate(0, 0, -30))
+	if err != nil {
+		t.Fatalf("PruneOlderThan: %v", err)
+	}
+	if removed != 0 {
+		t.Fatalf("removed = %d, want 0", removed)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatalf("old backup should remain after remove failure: %v", err)
 	}
 }
 

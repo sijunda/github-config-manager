@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/profile"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -31,6 +31,22 @@ func requireArgs(n int) cobra.PositionalArgs {
 		return fmt.Errorf("too many arguments provided\n\n  Usage: %s\n\n  Run 'gcm %s --help' for more information.",
 			cmd.UseLine(), cmd.CommandPath()[4:]) // skip "gcm " prefix
 	}
+}
+
+func profileNotFoundError(name string) error {
+	return fmt.Errorf("profile %q not found", name)
+}
+
+func profileMissingSSHKeyError(name string) error {
+	return fmt.Errorf("profile %q has no SSH key configured", name)
+}
+
+func profileMissingGPGKeyError(name string) error {
+	return fmt.Errorf("profile %q has no GPG key configured", name)
+}
+
+func missingProviderTokenError(providerName, profileName string) error {
+	return fmt.Errorf("no %s token found for profile %q", providerName, profileName)
 }
 
 // formatTimeAgo formats a time.Time as a human-friendly "X ago" string.

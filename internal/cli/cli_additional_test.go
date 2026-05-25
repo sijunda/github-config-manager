@@ -6,22 +6,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/iotest"
 	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/container"
-	"git-config-manager/internal/github"
-	"git-config-manager/internal/gitlab"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/internal/providerclient"
-	templatepkg "git-config-manager/internal/template"
-	"git-config-manager/pkg/logger"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/container"
+	"github.com/sijunda/git-config-manager/internal/github"
+	"github.com/sijunda/git-config-manager/internal/gitlab"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/providerclient"
+	templatepkg "github.com/sijunda/git-config-manager/internal/template"
+	"github.com/sijunda/git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -50,6 +51,30 @@ func setTestStdin(t *testing.T, input string) {
 	if err := writeEnd.Close(); err != nil {
 		t.Fatalf("close stdin: %v", err)
 	}
+}
+
+func setGlobalGitConfig(t *testing.T, key, value string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	cmd := exec.Command("git", "config", "--global", key, value)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git config %s: %v\n%s", key, err, output)
+	}
+}
+
+func globalGitConfig(t *testing.T, key string) (string, bool) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	cmd := exec.Command("git", "config", "--global", "--get", key)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(output)), true
 }
 
 func setUIPromptInput(t *testing.T, input string) {
@@ -361,9 +386,44 @@ func TestCredentialHelperPureHelpers(t *testing.T) {
 	t.Cleanup(func() { ctr = original })
 	ctr = newRepairTestContainer(t)
 	ctr.ProviderRegistry.Register(providerpkg.Definition{ID: providerpkg.ProviderID("docs"), DisplayName: "Docs", WebURL: "https://docs.example.test", GitHosts: []string{"docs.example.test"}})
+	ctr.ProviderRegistry.Register(providerpkg.Definition{
+		ID:           providerpkg.ProviderID("forge"),
+		DisplayName:  "Forge",
+		GitHosts:     []string{"forge.example.test", "https://alt-forge.example.test/"},
+		Capabilities: providerpkg.CapabilitySet{providerpkg.CapabilityCredentialHelper: true},
+	})
 	servers := credentialHelperServers()
-	if len(servers) != 2 || servers[0] == "" || servers[1] == "" {
-		t.Fatalf("credentialHelperServers = %#v", servers)
+	seen := make(map[string]bool, len(servers))
+	for _, server := range servers {
+		seen[server] = true
+	}
+	for _, want := range []string{"https://github.com", "https://gitlab.com", "https://forge.example.test", "https://alt-forge.example.test"} {
+		if !seen[want] {
+			t.Fatalf("credentialHelperServers = %#v, missing %s", servers, want)
+		}
+	}
+
+	if got := credentialHelperCommand("/tmp/Git Config Manager/gcm"); got != "!'/tmp/Git Config Manager/gcm' credential-helper" {
+		t.Fatalf("credentialHelperCommand spaces = %q", got)
+	}
+	if got := credentialHelperCommand("/tmp/o'clock/gcm"); got != "!'/tmp/o'\\''clock/gcm' credential-helper" {
+		t.Fatalf("credentialHelperCommand quote = %q", got)
+	}
+	if !credentialHelperConfigContainsGCM("!'/tmp/Git Config Manager/gcm' credential-helper\n") {
+		t.Fatal("quoted helper command should be recognized as GCM")
+	}
+}
+
+func TestCheckCommandUsesStderrVersionOutput(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh is unavailable")
+	}
+
+	out := captureStdout(t, func() {
+		checkCommand("SSH", "sh", "-c", "echo OpenSSH_9.9p1 >&2")
+	})
+	if strings.Contains(out, "not installed") || !strings.Contains(out, "OpenSSH_9.9p1") {
+		t.Fatalf("checkCommand output = %q", out)
 	}
 }
 
@@ -607,14 +667,14 @@ func TestSSHAndGPGCommandRunPaths(t *testing.T) {
 	if err := ctr.ProfileManager.Create(gpgProfile); err != nil {
 		t.Fatalf("create gpg profile: %v", err)
 	}
-	for _, args := range [][]string{{"gpg"}, {"gpg", "list"}, {"gpg", "sign", "disable", "gpgwork"}, {"gpg", "upload", "gpgwork"}} {
+	for _, args := range [][]string{{"gpg"}, {"gpg", "list"}, {"gpg", "sign", "disable", "gpgwork"}} {
 		captureStdout(t, func() {
 			if err := runRootCommand(t, args...); err != nil {
 				t.Fatalf("%v: %v", args, err)
 			}
 		})
 	}
-	for _, args := range [][]string{{"gpg", "sign", "enable", "gpgwork"}, {"gpg", "test", "gpgwork"}} {
+	for _, args := range [][]string{{"gpg", "sign", "enable", "gpgwork"}, {"gpg", "test", "gpgwork"}, {"gpg", "upload", "gpgwork"}} {
 		captureStdout(t, func() {
 			if err := runRootCommand(t, args...); err == nil {
 				t.Fatalf("expected %v to fail", args)
@@ -844,6 +904,79 @@ func TestInitAndCredentialRegistrationRunPaths(t *testing.T) {
 	_ = IsCredentialHelperConfigured()
 }
 
+func TestInitDoesNotClearGlobalIdentityWithoutExplicitFlag(t *testing.T) {
+	original := ctr
+	t.Cleanup(func() { ctr = original })
+	ctr = newRepairTestContainer(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	setGlobalGitConfig(t, "user.name", "Existing User")
+	setGlobalGitConfig(t, "user.email", "existing@example.test")
+
+	captureStdout(t, func() {
+		if err := runRootCommand(t, "init"); err != nil {
+			t.Fatalf("init: %v", err)
+		}
+	})
+
+	if got, ok := globalGitConfig(t, "user.name"); !ok || got != "Existing User" {
+		t.Fatalf("user.name = %q, %v", got, ok)
+	}
+	if got, ok := globalGitConfig(t, "user.email"); !ok || got != "existing@example.test" {
+		t.Fatalf("user.email = %q, %v", got, ok)
+	}
+}
+
+func TestInitClearsGlobalIdentityWithExplicitFlag(t *testing.T) {
+	original := ctr
+	t.Cleanup(func() { ctr = original })
+	ctr = newRepairTestContainer(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	setGlobalGitConfig(t, "user.name", "Existing User")
+	setGlobalGitConfig(t, "user.email", "existing@example.test")
+
+	captureStdout(t, func() {
+		if err := runRootCommand(t, "init", "--clear-global-identity"); err != nil {
+			t.Fatalf("init --clear-global-identity: %v", err)
+		}
+	})
+
+	if got, ok := globalGitConfig(t, "user.name"); ok {
+		t.Fatalf("user.name still set to %q", got)
+	}
+	if got, ok := globalGitConfig(t, "user.email"); ok {
+		t.Fatalf("user.email still set to %q", got)
+	}
+}
+
+func TestSetupDoesNotClearGlobalIdentityBeforeFirstPrompt(t *testing.T) {
+	original := ctr
+	t.Cleanup(func() { ctr = original })
+	ctr = newRepairTestContainer(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	setGlobalGitConfig(t, "user.name", "Existing User")
+	setGlobalGitConfig(t, "user.email", "existing@example.test")
+	setUIPromptInput(t, "")
+
+	captureStdout(t, func() {
+		if err := runSetup(context.Background()); err == nil {
+			t.Fatal("expected setup prompt error")
+		}
+	})
+
+	if got, ok := globalGitConfig(t, "user.name"); !ok || got != "Existing User" {
+		t.Fatalf("user.name = %q, %v", got, ok)
+	}
+	if got, ok := globalGitConfig(t, "user.email"); !ok || got != "existing@example.test" {
+		t.Fatalf("user.email = %q, %v", got, ok)
+	}
+}
+
 func TestGitHubOAuthGHAndSetupAuthBranches(t *testing.T) {
 	original := ctr
 	t.Cleanup(func() { ctr = original })
@@ -904,8 +1037,8 @@ func TestGitHubOAuthGHAndSetupAuthBranches(t *testing.T) {
 	})
 	setUIPromptInput(t, "2\n")
 	captureStdout(t, func() {
-		if err := runSetupGitHubAuthentication(context.Background(), "oauthwork", githubDef); err != nil {
-			t.Fatalf("OAuth GitHub setup auth error branch: %v", err)
+		if err := runSetupGitHubAuthentication(context.Background(), "oauthwork", githubDef); err == nil {
+			t.Fatal("expected OAuth GitHub setup auth error")
 		}
 	})
 	setUIPromptInput(t, "1\ngh-token\n")
@@ -963,7 +1096,14 @@ func TestAdditionalCommandBranches(t *testing.T) {
 	}
 	for _, args := range [][]string{{"profile", "import", filepath.Join(t.TempDir(), "missing.yaml")}, {"profile", "import", importPath}} {
 		captureStdout(t, func() {
-			if err := runRootCommand(t, args...); err != nil {
+			err := runRootCommand(t, args...)
+			if strings.Contains(args[2], "missing") {
+				if err == nil {
+					t.Fatalf("expected %v to fail", args)
+				}
+				return
+			}
+			if err != nil {
 				t.Fatalf("%v: %v", args, err)
 			}
 		})
@@ -1056,11 +1196,26 @@ func TestNonInteractiveCommandRunPaths(t *testing.T) {
 		{"status"},
 		{"doctor"},
 	}
+	wantErr := map[string]bool{
+		strings.Join([]string{"backup", "restore", missingBackup}, " "): true,
+		"validate missing":     true,
+		"profile show missing": true,
+		"ssh copy work":        true,
+		"ssh test work":        true,
+		"ssh upload work":      true,
+	}
 
 	for _, args := range commands {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			captureStdout(t, func() {
-				if err := runRootCommand(t, args...); err != nil {
+				err := runRootCommand(t, args...)
+				if wantErr[strings.Join(args, " ")] {
+					if err == nil {
+						t.Fatalf("expected %v to fail", args)
+					}
+					return
+				}
+				if err != nil {
 					t.Fatalf("%v: %v", args, err)
 				}
 			})

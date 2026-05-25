@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/config"
 )
 
 const defaultGitHubAPIURL = "https://api.github.com"

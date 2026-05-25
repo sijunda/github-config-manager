@@ -225,7 +225,7 @@ git clone https://github.com/jane/my-project.git          # ✓ works
 git clone https://github.com/acme-corp/private-repo.git   # ✗ access denied (correct!)
 ```
 
-> **How it works:** `gcm use` calls `git credential reject` to clear old credentials, `git credential approve` to store the new profile's credentials, and pins `credential.https://github.com.username` to prevent fallback to other stored credentials.
+> **How it works:** `gcm use` calls `git credential reject` to clear old credentials, `git credential approve` to store the new profile's credentials, and pins the provider-host `credential.*.username` value to prevent fallback to other stored credentials.
 
 ---
 

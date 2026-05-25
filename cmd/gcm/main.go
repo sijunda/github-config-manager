@@ -8,11 +8,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"git-config-manager/internal/cli"
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/container"
-	"git-config-manager/pkg/logger"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/cli"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/container"
+	"github.com/sijunda/git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

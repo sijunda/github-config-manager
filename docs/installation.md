@@ -36,9 +36,23 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH`.
 
 ## Prebuilt Binaries
 
-> **Coming soon.** Homebrew tap and prebuilt release binaries are planned. For now, build from source.
+Release archives are published by GoReleaser for each supported platform. The installer downloads `checksums.txt`, verifies the selected archive with SHA-256, extracts the binary, and does not modify your shell environment unless you pass an opt-in flag:
 
-When available, download the archive for your platform, extract, and move the binary onto your `PATH`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash -s -- --add-to-path
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash -s -- --add-to-path --init
+```
+
+On Windows, use PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.ps1 -OutFile install.ps1
+.\install.ps1
+.\install.ps1 -AddToPath
+```
+
+To install manually, download both the archive and `checksums.txt` from the same GitHub release, verify the archive checksum, extract it, and move the binary onto your `PATH`:
 
 ```bash
 tar -xzf gcm_<version>_<os>_<arch>.tar.gz

@@ -6,6 +6,8 @@ set -e
 # Global flags
 QUIET_MODE=false
 SPECIFIC_VERSION=""
+ADD_TO_PATH=false
+INIT_AFTER_INSTALL=false
 
 # Parse command line arguments
 parse_arguments() {
@@ -18,6 +20,14 @@ parse_arguments() {
             --version|-v)
                 SPECIFIC_VERSION="$2"
                 shift 2
+                ;;
+            --add-to-path)
+                ADD_TO_PATH=true
+                shift
+                ;;
+            --init)
+                INIT_AFTER_INSTALL=true
+                shift
                 ;;
             --help|-h)
                 show_help
@@ -41,12 +51,16 @@ show_help() {
     echo "Options:"
     echo "  --quiet, -q         Run in quiet mode (minimal output)"
     echo "  --version, -v VER   Install specific version (e.g., v1.0.0)"
+    echo "  --add-to-path       Add the install directory to your shell config"
+    echo "  --init              Run 'gcm init' after install (mutates shell/git config)"
     echo "  --help, -h          Show this help message"
     echo
     echo "Examples:"
     echo "  $0                  # Install latest version"
     echo "  $0 --quiet          # Install quietly"
     echo "  $0 --version v1.0.0 # Install specific version"
+    echo "  $0 --add-to-path    # Install and update shell PATH explicitly"
+    echo "  $0 --init           # Install and explicitly initialize GCM"
 }
 
 # Colors and styles
@@ -247,6 +261,29 @@ get_shell_configs() {
     printf '%s ' "${configs[@]}"
 }
 
+# Download a URL to a file using curl or wget with fail-fast semantics.
+download_file() {
+    local url="$1"
+    local output="$2"
+
+    if command -v curl >/dev/null 2>&1; then
+        if [[ "$QUIET_MODE" == "true" ]]; then
+            curl -fsSL -o "$output" "$url"
+        else
+            curl -fL --progress-bar -o "$output" "$url"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [[ "$QUIET_MODE" == "true" ]]; then
+            wget -qO "$output" "$url"
+        else
+            wget --show-progress -qO "$output" "$url"
+        fi
+    else
+        print_error "Either curl or wget is required to download gcm"
+        return 1
+    fi
+}
+
 # Get the latest release version from GitHub
 get_latest_version() {
     if [[ -n "$SPECIFIC_VERSION" ]]; then
@@ -256,7 +293,7 @@ get_latest_version() {
 
     local version=""
     if command -v curl >/dev/null 2>&1; then
-        version=$(curl -s https://api.github.com/repos/sijunda/git-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+        version=$(curl -fsSL https://api.github.com/repos/sijunda/git-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     elif command -v wget >/dev/null 2>&1; then
         version=$(wget -qO- https://api.github.com/repos/sijunda/git-config-manager/releases/latest | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     else
@@ -272,7 +309,84 @@ get_latest_version() {
     echo "$version"
 }
 
-# Verify binary checksum (basic validation)
+release_asset_filename() {
+    local version="$1"
+    local platform="$2"
+    local os arch artifact_version ext
+
+    os=$(echo "$platform" | cut -d'/' -f1)
+    arch=$(echo "$platform" | cut -d'/' -f2)
+    artifact_version="${version#v}"
+    ext="tar.gz"
+    if [[ "$os" == "windows" ]]; then
+        ext="zip"
+    fi
+
+    echo "gcm_${artifact_version}_${os}_${arch}.${ext}"
+}
+
+compute_sha256() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    else
+        print_error "sha256sum or shasum is required to verify release checksums"
+        return 1
+    fi
+}
+
+verify_checksum() {
+    local file="$1"
+    local checksums="$2"
+    local filename expected actual
+
+    filename=$(basename "$file")
+    expected=$(awk -v target="$filename" '$2 == target {print $1}' "$checksums")
+    if [[ -z "$expected" ]]; then
+        print_error "No checksum entry found for $filename"
+        return 1
+    fi
+
+    actual=$(compute_sha256 "$file")
+    if [[ "$actual" != "$expected" ]]; then
+        print_error "Checksum mismatch for $filename"
+        print_error "Expected: $expected"
+        print_error "Actual:   $actual"
+        return 1
+    fi
+
+    print_success "Checksum verified for $filename"
+}
+
+extract_archive() {
+    local archive="$1"
+    local target_dir="$2"
+
+    mkdir -p "$target_dir"
+    case "$archive" in
+        *.tar.gz)
+            tar -xzf "$archive" -C "$target_dir"
+            ;;
+        *.zip)
+            if command -v unzip >/dev/null 2>&1; then
+                unzip -q "$archive" -d "$target_dir"
+            elif command -v powershell.exe >/dev/null 2>&1; then
+                powershell.exe -NoProfile -Command "Expand-Archive -LiteralPath '$archive' -DestinationPath '$target_dir' -Force"
+            else
+                print_error "unzip is required to extract Windows release archives"
+                return 1
+            fi
+            ;;
+        *)
+            print_error "Unsupported release archive: $archive"
+            return 1
+            ;;
+    esac
+}
+
+# Verify binary after checksum-protected extraction.
 verify_binary() {
     local binary_path="$1"
 
@@ -355,7 +469,7 @@ stop_spinner_fail() {
     printf "\r   ${RED}${CROSSMARK}${NC} %s failed.      \n" "$msg"
 }
 
-# Download the binary
+# Download, checksum-verify, and extract the release archive.
 download_binary() {
     local version="$1"
     local platform="$2"
@@ -364,84 +478,105 @@ download_binary() {
     local os=$(echo "$platform" | cut -d'/' -f1)
     local arch=$(echo "$platform" | cut -d'/' -f2)
 
-    # Construct binary name
     local binary_name="gcm"
     if [[ "$os" == "windows" ]]; then
         binary_name="gcm.exe"
     fi
 
-    # Construct download URL
-    local download_url="https://github.com/sijunda/git-config-manager/releases/download/${version}/gcm-${os}-${arch}"
-    if [[ "$os" == "windows" ]]; then
-        download_url="${download_url}.exe"
-    fi
+    local asset_name
+    asset_name=$(release_asset_filename "$version" "$platform")
+    local base_url="https://github.com/sijunda/git-config-manager/releases/download/${version}"
+    local archive_url="${base_url}/${asset_name}"
+    local checksums_url="${base_url}/checksums.txt"
+    local tmp_dir archive_path checksums_path extract_dir extracted_binary
+    tmp_dir=$(mktemp -d 2>/dev/null || mktemp -d -t gcm-install)
+    archive_path="${tmp_dir}/${asset_name}"
+    checksums_path="${tmp_dir}/checksums.txt"
+    extract_dir="${tmp_dir}/extract"
 
     print_step "Downloading gcm ${version} for ${platform}..."
-    print_info "Download URL: $download_url"
+    print_info "Archive URL: $archive_url"
+    print_info "Checksums URL: $checksums_url"
 
-    # Create install directory
     mkdir -p "$install_dir"
 
-    # Download binary with REAL progress bar (shows %, speed, ETA)
-    echo -e "   ${DIM}Downloading...${NC}"
-    local download_ok=true
-    if command -v curl >/dev/null 2>&1; then
-        if [[ "$QUIET_MODE" == "true" ]]; then
-            curl -sSL -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
-        else
-            curl -L --progress-bar -o "${install_dir}/${binary_name}" "$download_url" || download_ok=false
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if [[ "$QUIET_MODE" == "true" ]]; then
-            wget -qO "${install_dir}/${binary_name}" "$download_url" || download_ok=false
-        else
-            wget --show-progress -qO "${install_dir}/${binary_name}" "$download_url" 2>&1 || download_ok=false
-        fi
-    else
-        print_error "Either curl or wget is required to download gcm"
+    echo -e "   ${DIM}Downloading release archive...${NC}"
+    if ! download_file "$archive_url" "$archive_path"; then
+        print_error "Failed to download gcm archive from $archive_url"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    if ! download_file "$checksums_url" "$checksums_path"; then
+        print_error "Failed to download release checksums from $checksums_url"
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    echo -e "   ${GREEN}${CHECKMARK}${NC} Downloaded release archive and checksums."
+
+    if ! verify_checksum "$archive_path" "$checksums_path"; then
+        rm -f "$archive_path"
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
-    if [[ "$download_ok" == "false" ]]; then
-        echo -e "   ${RED}${CROSSMARK}${NC} Download failed."
-        print_error "Failed to download gcm binary from $download_url"
+    if ! extract_archive "$archive_path" "$extract_dir"; then
+        rm -rf "$tmp_dir"
+        exit 1
+    fi
+    extracted_binary=$(find "$extract_dir" -type f -name "$binary_name" -perm -u+x -print -quit 2>/dev/null || true)
+    if [[ -z "$extracted_binary" ]]; then
+        extracted_binary=$(find "$extract_dir" -type f -name "$binary_name" -print -quit 2>/dev/null || true)
+    fi
+    if [[ -z "$extracted_binary" ]]; then
+        print_error "Release archive did not contain $binary_name"
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
-    echo -e "   ${GREEN}${CHECKMARK}${NC} Downloaded gcm binary successfully."
-
-    # Check if download was successful
-    if [[ ! -f "${install_dir}/${binary_name}" ]]; then
-        print_error "Failed to download gcm binary"
-        exit 1
-    fi
-
-    # Make binary executable
+    cp "$extracted_binary" "${install_dir}/${binary_name}"
     chmod +x "${install_dir}/${binary_name}"
 
-    # Validate the downloaded binary
     if ! verify_binary "${install_dir}/${binary_name}"; then
         print_error "Binary validation failed"
         rm -f "${install_dir}/${binary_name}"
+        rm -rf "$tmp_dir"
         exit 1
     fi
 
-    print_success "Downloaded gcm binary to ${install_dir}/${binary_name}"
+    rm -rf "$tmp_dir"
+    print_success "Installed verified gcm binary to ${install_dir}/${binary_name}"
 }
 
-# Add to PATH and initialize shell configuration
-add_to_path() {
+# Add to PATH only when explicitly requested.
+add_to_path_if_requested() {
+    local install_dir="$1"
+
+    if [[ "$ADD_TO_PATH" != "true" ]]; then
+        print_info "Shell PATH was not modified. To opt in, rerun with --add-to-path or add this manually:"
+        echo "  export PATH=\"${install_dir}:\$PATH\""
+        return
+    fi
+
+    print_step "Configuring shell PATH..."
+    configure_path_manually "$install_dir"
+}
+
+# Run gcm init only when explicitly requested.
+run_init_if_requested() {
     local install_dir="$1"
     local gcm_binary="${install_dir}/gcm"
+
+    if [[ "$INIT_AFTER_INSTALL" != "true" ]]; then
+        print_info "GCM initialization was not run. Run 'gcm init' when you are ready to install shell hooks."
+        return
+    fi
 
     if [ ! -x "$gcm_binary" ]; then
         print_error "gcm binary not found or not executable at $gcm_binary"
         exit 1
     fi
 
-    print_step "Configuring shell environment..."
-
-    # Run `gcm init` with spinner running during actual work
+    print_step "Initializing GCM by explicit request..."
     start_spinner "Installing shell configuration" "$PURPLE"
 
     local init_output
@@ -453,10 +588,9 @@ add_to_path() {
         fi
     else
         stop_spinner_fail "Shell configuration"
-        # gcm init may not exist yet or may need the binary in PATH first
-        # Fall back to manual PATH setup
-        print_warning "gcm init not available yet, configuring PATH manually..."
-        configure_path_manually "$install_dir"
+        print_error "gcm init failed. No fallback shell mutation was applied."
+        [[ -n "$init_output" ]] && echo "$init_output"
+        exit 1
     fi
 }
 
@@ -532,13 +666,18 @@ show_completion() {
     print_separator "┄"
     echo -e "${BOLD}${WHITE}What was installed:${NC}"
     echo " • gcm binary"
-    echo " • Shell PATH configuration"
-    echo " • Shell integration (auto-switch on cd)"
+    echo " • Release checksum verification"
+    if [[ "$ADD_TO_PATH" == "true" ]]; then
+        echo " • Shell PATH configuration"
+    fi
+    if [[ "$INIT_AFTER_INSTALL" == "true" ]]; then
+        echo " • Shell integration (auto-switch on cd)"
+    fi
     print_separator "┄"
     echo -e "${BOLD}${WHITE}Next Steps:${NC}"
     echo " 1. $restart_instruction"
     echo " 2. Verify with 'gcm version'"
-    echo " 3. Initialize with 'gcm init'"
+    echo " 3. Initialize with 'gcm init' when you want shell hooks"
     echo " 4. Create your first profile with 'gcm profile create <name>'"
     print_separator "┄"
     echo -e "${BOLD}${WHITE}Quick Commands:${NC}"
@@ -681,8 +820,12 @@ main() {
     download_binary "$version" "$platform" "$install_dir"
     echo
 
-    # Add to PATH
-    add_to_path "$install_dir"
+    # Configure PATH only when explicitly requested.
+    add_to_path_if_requested "$install_dir"
+    echo
+
+    # Initialize only when explicitly requested.
+    run_init_if_requested "$install_dir"
     echo
 
     # Verify installation

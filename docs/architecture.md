@@ -228,7 +228,7 @@ The `Container` acts as a facade — the CLI layer doesn't need to know how serv
 Token storage uses three strategies selected at runtime:
 1. **OS Keychain** — `keyring.Set/Get/Delete`
 2. **Encrypted file** — AES-256-GCM with master password
-3. **Plain-text file** — `0600` permissions fallback
+3. **Plain-text file** — `0600` permissions, explicit `allow_plaintext_tokens` opt-in only
 
 Shell hook generation uses a strategy per shell type (Bash, Zsh, Fish, PowerShell).
 
@@ -349,15 +349,16 @@ GCM is single-process, single-goroutine for most operations. Concurrency appears
 
 ```
 1. use_keychain enabled? → try OS keychain
-2. Keychain failed? → fall through
+2. Keychain failed? → secure fallback only
 3. encrypt_tokens + master_password? → AES-256-GCM encrypted file
-4. Neither? → plain-text file (0600 permissions)
+4. allow_plaintext_tokens? → plain-text file (0600 permissions)
+5. Neither? → fail closed
 ```
 
 ### Backup Archive Structure
 
 ```
-gcm-backup-YYYY-MM-DD.tar.gz
+gcm-backup-YYYY-MM-DD.tar.gz  # unencrypted
 ├── config.yaml
 ├── profiles/
 │   ├── work.yaml
@@ -366,7 +367,7 @@ gcm-backup-YYYY-MM-DD.tar.gz
     └── company.yaml
 ```
 
-Each entry validated against path traversal (zip-slip) before extraction.
+Each entry is extracted to a staging directory and validated against path traversal (zip-slip) before live files are replaced. Unsupported encrypted/key-inclusive backup settings fail closed.
 
 ---
 

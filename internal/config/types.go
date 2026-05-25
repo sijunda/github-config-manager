@@ -100,10 +100,11 @@ type BackupConfig struct {
 
 // SecurityConfig controls security behavior.
 type SecurityConfig struct {
-	EncryptTokens  bool `yaml:"encrypt_tokens" json:"encrypt_tokens"`
-	UseKeychain    bool `yaml:"use_keychain" json:"use_keychain"`
-	MasterPassword bool `yaml:"master_password" json:"master_password"`
-	AuditLog       bool `yaml:"audit_log" json:"audit_log"`
+	EncryptTokens        bool `yaml:"encrypt_tokens" json:"encrypt_tokens"`
+	UseKeychain          bool `yaml:"use_keychain" json:"use_keychain"`
+	MasterPassword       bool `yaml:"master_password" json:"master_password"`
+	AllowPlaintextTokens bool `yaml:"allow_plaintext_tokens" json:"allow_plaintext_tokens"`
+	AuditLog             bool `yaml:"audit_log" json:"audit_log"`
 }
 
 // UIConfig controls CLI output.
@@ -152,7 +153,7 @@ func DefaultConfig() *Config {
 		AutoSwitch: AutoSwitchConfig{
 			Enabled:           true,
 			ProjectFile:       ".gcm-profile",
-			DetectionStrategy: "remote",
+			DetectionStrategy: "project_file",
 		},
 		Shell: ShellConfig{
 			Integration:     true,
@@ -200,18 +201,19 @@ func DefaultConfig() *Config {
 			},
 		},
 		Backup: BackupConfig{
-			AutoBackup:    true,
+			AutoBackup:    false,
 			Interval:      "daily",
 			RetentionDays: 30,
 			MaxBackups:    10,
 			IncludeKeys:   false,
-			Encryption:    true,
+			Encryption:    false,
 		},
 		Security: SecurityConfig{
-			EncryptTokens:  true,
-			UseKeychain:    true,
-			MasterPassword: false,
-			AuditLog:       true,
+			EncryptTokens:        true,
+			UseKeychain:          true,
+			MasterPassword:       false,
+			AllowPlaintextTokens: false,
+			AuditLog:             true,
 		},
 		UI: UIConfig{
 			Color:   true,

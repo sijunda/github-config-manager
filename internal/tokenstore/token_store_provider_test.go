@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/provider"
 )
 
 func TestTokenStore_ProviderTokenSet_SaveLoadDelete(t *testing.T) {

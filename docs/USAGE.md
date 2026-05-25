@@ -99,9 +99,10 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH` (typically `~/go/bin`).
 
 ### Option B — prebuilt binary
 
-Download the archive for your platform from the releases page, extract, and move the `gcm` binary onto your `PATH`:
+Download the archive and `checksums.txt` for your platform from the same release page, verify the archive checksum, extract it, and move the `gcm` binary onto your `PATH`:
 
 ```bash
+shasum -a 256 -c checksums.txt --ignore-missing
 tar -xzf gcm_<version>_<os>_<arch>.tar.gz
 sudo mv gcm /usr/local/bin/
 chmod +x /usr/local/bin/gcm
@@ -126,7 +127,7 @@ Make sure `$(go env GOPATH)/bin` is on your `PATH`.
 gcm init
 ```
 
-This detects your shell and appends a marked block to your rc file, and registers GCM's built-in credential helper for `github.com` (bypassing the system keychain so git auth is immune to VS Code logout or external credential changes):
+This detects your shell and appends a marked block to your rc file, and registers GCM's built-in credential helper for configured provider hosts (bypassing the system keychain so git auth is immune to VS Code logout or external credential changes):
 
 ```
 # >>> GCM shell integration >>>
@@ -599,6 +600,9 @@ backup:
   max_backups: 10
 security:
   encrypt_tokens: true
+  use_keychain: true
+  master_password: false
+  allow_plaintext_tokens: false
   audit_log: true
 advanced:
   git_command: "git"
@@ -773,9 +777,10 @@ After `gcm use`, git should only use the active profile's credentials. If you're
 
 1. **Check credential username pinning:**
    ```bash
+  # Replace github.com with the profile's provider host when needed.
    git config --global credential.https://github.com.username
    ```
-   This should show the active profile's GitHub username.
+  This should show the active profile's provider username.
 
 2. **Clear stale credentials manually:**
    ```bash

@@ -286,7 +286,7 @@ sequenceDiagram
     CredHelper-->>Git: username=work-user\npassword=<token>
 ```
 
-Git calls `gcm credential-helper get` whenever it needs HTTPS credentials for `github.com`. GCM resolves the active profile, decrypts the token from its own store (`~/.gcm/tokens/<profile>`), and returns it directly — bypassing the system keychain entirely.
+Git calls `gcm credential-helper get` whenever it needs HTTPS credentials for a configured provider host. GCM resolves the active profile, decrypts the provider-aware token from its own store, and returns it directly — bypassing the system keychain entirely.
 
 ---
 
@@ -362,7 +362,7 @@ flowchart TD
     CheckKeychain -->|Yes| TryKeychain[Store in OS keychain]
     TryKeychain --> KeychainOK{Success?}
     KeychainOK -->|Yes| Done[Done]
-    KeychainOK -->|No| FallThrough[Fall through]
+    KeychainOK -->|No| FallThrough[Secure fallback]
     
     CheckKeychain -->|No| FallThrough
     FallThrough --> CheckEncrypt{encrypt_tokens + master_password?}
@@ -372,7 +372,9 @@ flowchart TD
     Encrypt --> WriteEnc[Write v2 header+salt+ciphertext to file 0600]
     WriteEnc --> Done
     
-    CheckEncrypt -->|No| WritePlain[Write plain text to file 0600]
+    CheckEncrypt -->|No| CheckPlain{allow_plaintext_tokens?}
+    CheckPlain -->|Yes| WritePlain[Write plain text to file 0600]
+    CheckPlain -->|No| FailClosed[Fail closed]
     WritePlain --> Done
 ```
 

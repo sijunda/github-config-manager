@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

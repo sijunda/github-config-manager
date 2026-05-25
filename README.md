@@ -60,7 +60,14 @@
 
 ### One-Line Installation
 ```bash
-curl -sSL https://raw.githubusercontent.com/sijunda/github-config-manager/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash
+```
+
+The installer downloads the signed release manifest (`checksums.txt`), verifies the archive checksum, and installs only the `gcm` binary by default. It does not edit your shell files or run `gcm init` unless you explicitly opt in:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash -s -- --add-to-path
+curl -fsSL https://raw.githubusercontent.com/sijunda/git-config-manager/main/scripts/install.sh | bash -s -- --add-to-path --init
 ```
 
 ### From Source
@@ -81,7 +88,7 @@ gcm setup
 # Option B: Step by step
 gcm profile create work --interactive   # 1. Create a profile
 gcm use work                            # 2. Activate it
-gcm init                                # 3. Shell integration (auto-switch on cd)
+gcm init                                # 3. Optional shell integration (auto-switch on cd)
 gcm doctor                              # 4. Verify everything works
 ```
 

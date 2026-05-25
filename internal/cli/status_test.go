@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/container"
-	providerpkg "git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/container"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
 )
 
 func TestQuickVerifyProviderTokenUsesProviderAuthHeaders(t *testing.T) {

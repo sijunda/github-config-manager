@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"git-config-manager/internal/config"
-	cryptoSvc "git-config-manager/internal/service/crypto"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	cryptoSvc "github.com/sijunda/git-config-manager/internal/service/crypto"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 
 	"github.com/zalando/go-keyring"
 )
@@ -22,6 +23,7 @@ func newPlainStore(t *testing.T) *TokenStore {
 	cfg := config.DefaultConfig()
 	cfg.Security.UseKeychain = false
 	cfg.Security.EncryptTokens = false
+	cfg.Security.AllowPlaintextTokens = true
 	log := logger.New(logger.LevelError, os.Stderr)
 	return NewTokenStore(cfg, cryptoSvc.NewService(), log, nil)
 }
@@ -59,6 +61,41 @@ func TestTokenStore_Plain_SaveLoadDelete(t *testing.T) {
 	}
 	if _, err := ts.Load("myprofile"); err == nil {
 		t.Error("expected error after delete")
+	}
+}
+
+func TestTokenStore_Plain_DisabledWithoutExplicitOptIn(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	cfg := config.DefaultConfig()
+	cfg.Security.UseKeychain = false
+	cfg.Security.EncryptTokens = false
+	cfg.Security.MasterPassword = false
+	cfg.Security.AllowPlaintextTokens = false
+	ts := NewTokenStore(cfg, cryptoSvc.NewService(), logger.New(logger.LevelError, os.Stderr), nil)
+
+	if err := ts.Save("plain-disabled", "tok"); err == nil || !strings.Contains(err.Error(), "plaintext token storage disabled") {
+		t.Fatalf("Save error = %v", err)
+	}
+	if _, err := ts.Load("plain-disabled"); err == nil || !strings.Contains(err.Error(), "plaintext token storage disabled") {
+		t.Fatalf("Load error = %v", err)
+	}
+}
+
+func TestTokenStore_PlainBackendRejectsDirectUseWhenDisabled(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	cfg := config.DefaultConfig()
+	cfg.Security.UseKeychain = false
+	cfg.Security.EncryptTokens = false
+	cfg.Security.AllowPlaintextTokens = false
+	ts := NewTokenStore(cfg, cryptoSvc.NewService(), logger.New(logger.LevelError, os.Stderr), nil)
+
+	if err := ts.savePlain("plain-disabled-direct", "tok"); err == nil || !strings.Contains(err.Error(), "plaintext token storage disabled") {
+		t.Fatalf("savePlain error = %v", err)
+	}
+	if _, err := ts.loadPlain("plain-disabled-direct"); err == nil || !strings.Contains(err.Error(), "plaintext token storage disabled") {
+		t.Fatalf("loadPlain error = %v", err)
 	}
 }
 
@@ -536,7 +573,7 @@ func TestTokenStore_WriteTokenFile_UnwritableDir(t *testing.T) {
 	t.Setenv("HOME", tmp)
 
 	cfg := &config.Config{
-		Security: config.SecurityConfig{EncryptTokens: false},
+		Security: config.SecurityConfig{EncryptTokens: false, AllowPlaintextTokens: true},
 	}
 
 	// Create .gcm dir, then make tokens a read-only dir with a file inside
@@ -738,13 +775,23 @@ func TestTokenStore_Keychain_SaveError(t *testing.T) {
 	keyringSet = func(_, _, _ string) error { return fmt.Errorf("keychain locked") }
 
 	ts := newKeychainStore(t)
-	// When keychain fails, Save gracefully falls back to plain-file storage.
 	err := ts.Save("kc-err", "tok")
-	if err != nil {
-		t.Fatalf("expected graceful fallback to file storage, got error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "plaintext token storage disabled") {
+		t.Fatalf("expected fail-closed keychain error, got: %v", err)
 	}
-	// Verify the token was saved via file fallback
-	tok, err := ts.Load("kc-err")
+}
+
+func TestTokenStore_Keychain_SaveErrorPlainFallbackRequiresOptIn(t *testing.T) {
+	oldSet := keyringSet
+	defer func() { keyringSet = oldSet }()
+	keyringSet = func(_, _, _ string) error { return fmt.Errorf("keychain locked") }
+
+	ts := newKeychainStore(t)
+	ts.cfg.Security.AllowPlaintextTokens = true
+	if err := ts.Save("kc-plain-fallback", "tok"); err != nil {
+		t.Fatalf("Save with explicit plaintext fallback: %v", err)
+	}
+	tok, err := ts.Load("kc-plain-fallback")
 	if err != nil {
 		t.Fatalf("Load after fallback: %v", err)
 	}

@@ -111,7 +111,7 @@ dbus-send --session --dest=org.freedesktop.secrets \
   /org/freedesktop/secrets org.freedesktop.DBus.Peer.Ping 2>/dev/null && echo "OK"
 ```
 
-If keychain is unavailable, GCM falls back to AES-256-GCM encrypted file storage. See [Security Model](security.md#token-storage-backends).
+If keychain is unavailable, GCM falls back only to AES-256-GCM encrypted file storage configured with a master password. Plain-text token files require explicit `security.allow_plaintext_tokens: true`. See [Security Model](security.md#token-storage-backends).
 
 ### Go Toolchain (Optional — for building from source)
 
@@ -223,7 +223,7 @@ file $(which gcm)
 GCM works in WSL 1 and WSL 2. Notes:
 
 - Install GCM **inside** WSL (not the Windows host)
-- The Linux keychain (`gnome-keyring`) may not be available — GCM falls back to encrypted file storage
+- The Linux keychain (`gnome-keyring`) may not be available — configure master-password encrypted file storage for secure fallback
 - Shell integration works normally inside WSL terminals
 - SSH keys generated in WSL are separate from Windows host keys
 
@@ -236,7 +236,7 @@ COPY --from=builder /usr/local/bin/gcm /usr/local/bin/gcm
 RUN gcm version
 ```
 
-Note: OS keychain is unavailable in containers. Use encrypted file or plain-text token storage.
+Note: OS keychain is unavailable in containers. Use master-password encrypted file storage, or explicitly opt into `security.allow_plaintext_tokens: true` only when the container environment accepts that risk.
 
 ---
 

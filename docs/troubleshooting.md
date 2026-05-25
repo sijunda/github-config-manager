@@ -220,8 +220,9 @@ GCM automatically isolates git credentials per profile when you `gcm use`. If yo
 
 2. **Check credential pinning** is set:
    ```bash
+   # Replace github.com with the profile's provider host when needed.
    git config --global credential.https://github.com.username
-   # Should show the active profile's GitHub username
+   # Should show the active profile's provider username
    ```
 
 3. **Clear stale credentials** from the OS credential store:
@@ -255,7 +256,7 @@ If `git push` suddenly fails with authentication errors after logging out of Git
 gcm init
 ```
 
-This configures git to use `gcm credential-helper` for `github.com`, making git auth immune to external credential changes. Verify with:
+This configures git to use `gcm credential-helper` for configured provider hosts, making git auth immune to external credential changes. Verify with:
 
 ```bash
 gcm doctor

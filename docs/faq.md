@@ -245,13 +245,13 @@ The flow has a 15-minute timeout. Make sure you open the exact URL and enter the
 It appends a marked block of shell code to your config file (e.g., `~/.zshrc`). The block adds:
 1. An auto-switch hook that runs on `cd`
 2. A prompt indicator showing the active profile name
-3. Registers GCM's built-in credential helper for `github.com`
+3. Registers GCM's built-in credential helper for configured provider hosts
 
 ### Why does git push fail after I logout from VS Code?
 
 VS Code clears the macOS Keychain (or Windows Credential Manager) entry for `github.com` when you sign out. If git uses `osxkeychain`/`wincred` as its credential helper, the token is gone and `git push` fails.
 
-**Fix:** Run `gcm init` to register GCM's built-in credential helper. This bypasses the system keychain entirely — tokens are served directly from GCM's AES-256-GCM encrypted store (`~/.gcm/tokens/<profile>`), so external credential changes can't break your git auth.
+**Fix:** Run `gcm init` to register GCM's built-in credential helper. This bypasses the system keychain entirely — tokens are served directly from GCM's provider-aware encrypted store, so external credential changes can't break your git auth.
 
 ### Can I have auto-switching without the prompt indicator?
 

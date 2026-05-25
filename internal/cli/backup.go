@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -89,7 +89,7 @@ func newBackupRestoreCmd() *cobra.Command {
 				ui.Error("backup file not found: %s", args[0])
 				ui.Blank()
 				ui.Print("  To see available backups: gcm backup list")
-				return nil
+				return fmt.Errorf("backup file not found: %s", args[0])
 			}
 
 			confirm, err := ui.AskConfirm("This will overwrite current data. Continue?", false)

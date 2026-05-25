@@ -177,7 +177,7 @@ GitHub API integration and token storage.
 **Token storage backends (selected at runtime):**
 1. OS Keychain (macOS Keychain, Linux secret-service, Windows Credential Manager)
 2. Encrypted file (AES-256-GCM + Argon2id; legacy PBKDF2 tokens read transparently)
-3. Plain-text file (`0600`)
+3. Plain-text file (`0600`, explicit opt-in only)
 
 **Test hooks:** `keyringSet`, `keyringGet`, `keyringDelete` — in-memory keyring for tests.
 
@@ -220,7 +220,7 @@ Backup and restore operations.
 | `manager.go`      | `Manager` — `Create`, `List`, `Restore`, `Prune`      |
 | `manager_test.go` | Tests                                                 |
 
-Backups are `.tar.gz` archives. Restore is guarded against path-traversal (zip-slip).
+Backups are unencrypted `.tar.gz` archives containing config, profile YAML, and template YAML. Restore stages extraction first and is guarded against path-traversal (zip-slip). Encrypted/key-inclusive backup settings fail closed until those archive formats are implemented.
 
 ---
 

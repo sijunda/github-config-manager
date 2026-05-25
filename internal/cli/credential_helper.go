@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	githubpkg "git-config-manager/internal/github"
-	providerpkg "git-config-manager/internal/provider"
+	githubpkg "github.com/sijunda/git-config-manager/internal/github"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
 
 	"github.com/spf13/cobra"
 )
@@ -140,13 +140,18 @@ func parseCredentialInput() map[string]string {
 	return result
 }
 
-// IsCredentialHelperConfigured checks whether GCM is registered for GitHub.
+// IsCredentialHelperConfigured checks whether GCM is registered for GitHub hosts.
 func IsCredentialHelperConfigured() bool {
-	server := "https://github.com"
+	servers := []string{"https://github.com"}
 	if def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID); ok {
-		server = def.CredentialServer()
+		servers = credentialHelperServersFor(def)
 	}
-	return IsCredentialHelperConfiguredFor(server)
+	for _, server := range servers {
+		if !IsCredentialHelperConfiguredFor(server) {
+			return false
+		}
+	}
+	return len(servers) > 0
 }
 
 // IsCredentialHelperConfiguredFor checks whether GCM is registered for server.
@@ -159,7 +164,7 @@ func IsCredentialHelperConfiguredFor(server string) bool {
 		return false
 	}
 
-	return strings.Contains(string(out), "gcm credential-helper")
+	return credentialHelperConfigContainsGCM(string(out))
 }
 
 // RegisterCredentialHelper configures git to use GCM as the credential helper
@@ -177,7 +182,7 @@ func RegisterCredentialHelper() error {
 		return fmt.Errorf("cannot resolve GCM binary path: %w", err)
 	}
 
-	helperValue := fmt.Sprintf("!%s credential-helper", gcmPath)
+	helperValue := credentialHelperCommand(gcmPath)
 
 	for _, server := range credentialHelperServers() {
 		key := fmt.Sprintf("credential.%s.helper", server)
@@ -222,14 +227,48 @@ func credentialHelperServers() []string {
 		if !def.Capabilities.Has(providerpkg.CapabilityCredentialHelper) {
 			continue
 		}
-		server := def.CredentialServer()
-		if server == "" || seen[server] {
-			continue
+		for _, server := range credentialHelperServersFor(def) {
+			if server == "" || seen[server] {
+				continue
+			}
+			seen[server] = true
+			servers = append(servers, server)
 		}
-		seen[server] = true
-		servers = append(servers, server)
 	}
 	return servers
+}
+
+func credentialHelperServersFor(def providerpkg.Definition) []string {
+	servers := make([]string, 0, len(def.GitHosts))
+	for _, host := range def.GitHosts {
+		if normalized := providerpkg.NormalizeHost(host); normalized != "" {
+			servers = append(servers, "https://"+normalized)
+		}
+	}
+	if len(servers) == 0 {
+		server := strings.TrimRight(def.CredentialServer(), "/")
+		if server != "" {
+			servers = append(servers, server)
+		}
+	}
+	return servers
+}
+
+func credentialHelperCommand(gcmPath string) string {
+	return fmt.Sprintf("!%s credential-helper", shellQuote(gcmPath))
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func credentialHelperConfigContainsGCM(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "gcm") && strings.Contains(line, "credential-helper") {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveExecutablePath resolves the real path of the executable,

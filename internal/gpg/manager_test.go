@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 func writeFakeGPG(t *testing.T, dir string) {

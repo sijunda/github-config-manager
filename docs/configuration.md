@@ -14,7 +14,7 @@ GCM stores all data under `~/.gcm/`. This document covers the directory layout, 
 │   └── personal.yaml
 ├── templates/            # YAML template blueprints
 ├── tokens/        (0700) # Encrypted provider tokens
-├── backups/       (0700) # Timestamped .tar.gz snapshots
+├── backups/       (0700) # Timestamped unencrypted .tar.gz snapshots
 ├── logs/          (0700) # Audit logs (audit-YYYY-MM-DD.jsonl)
 └── cache/                # Transient data (safe to delete)
 ```
@@ -42,9 +42,10 @@ gpg_home:      ~/.gnupg
 auto_switch:
   enabled: true                  # Enable auto-switch on cd
   project_file: ".gcm-profile"  # File name to look for
-  detection_strategy: "remote"   # Profile detection strategy
+  detection_strategy: "project_file"  # Implemented profile detection strategy
 
-# URL-pattern-to-profile mapping rules.
+# Reserved for future URL-pattern-to-profile mapping rules.
+# Current shell auto-switching uses auto_switch.project_file.
 detection_rules: []
 # - pattern: "github.com/acme-corp/*"
 #   profile: work
@@ -104,18 +105,19 @@ providers:
 
 # Backup settings.
 backup:
-  auto_backup: true
+  auto_backup: false
   interval: "daily"
   retention_days: 30
   max_backups: 10
-  include_keys: false            # Include SSH private keys in backup
-  encryption: true               # Encrypt backups
+  include_keys: false            # SSH private key backups are disabled until encrypted backups are implemented
+  encryption: false              # Encrypted backup archives are not implemented; true fails closed
 
 # Security settings.
 security:
   encrypt_tokens: true           # Encrypt provider tokens at rest
   use_keychain: true             # Use OS keychain when available
   master_password: false         # Require master password
+  allow_plaintext_tokens: false  # Explicit unsafe fallback; disabled by default
   audit_log: true                # Enable audit logging
 
 # UI settings.

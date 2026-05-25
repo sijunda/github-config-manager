@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/container"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/logger"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/container"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 )
 
 func newRepairTestContainer(t *testing.T) *container.Container {
@@ -31,6 +31,7 @@ func newRepairTestContainer(t *testing.T) *container.Container {
 	cfg.Security.UseKeychain = false
 	cfg.Security.EncryptTokens = false
 	cfg.Security.MasterPassword = false
+	cfg.Security.AllowPlaintextTokens = true
 
 	for _, dir := range []string{cfg.ProfilesDir, cfg.TemplatesDir, cfg.CacheDir, cfg.SSHDir, cfg.GPGHome} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {

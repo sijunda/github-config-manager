@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/gpg"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/gpg"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -44,7 +44,7 @@ func newGPGGenerateCmd() *cobra.Command {
 				ui.Error("profile %q not found", profileName)
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(profileName)
 			}
 
 			sp := ui.NewSpinner("Generating GPG key...")
@@ -146,7 +146,7 @@ func newGPGSignCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			if p.GPG == nil || p.GPG.KeyID == "" {
 				return fmt.Errorf("profile %q has no GPG key. Generate one: gcm gpg generate %s", args[0], args[0])
@@ -169,7 +169,7 @@ func newGPGSignCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			p.Git.Commit.GPGSign = profile.BoolPtr(false)
 			if err := ctr.ProfileManager.Update(p); err != nil {
@@ -192,7 +192,7 @@ func newGPGTestCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			if p.GPG == nil || p.GPG.KeyID == "" {
 				return fmt.Errorf("profile %q has no GPG key configured", args[0])
@@ -236,13 +236,13 @@ Examples:
 			p, err := ctr.ProfileManager.Get(profileName)
 			if err != nil {
 				ui.Error("profile %q not found", profileName)
-				return nil
+				return profileNotFoundError(profileName)
 			}
 			if p.GPG == nil || p.GPG.KeyID == "" {
 				ui.Error("profile %q has no GPG key configured", profileName)
 				ui.Blank()
 				ui.Print("  To generate one: gcm gpg generate %s", profileName)
-				return nil
+				return profileMissingGPGKeyError(profileName)
 			}
 
 			def, err := selectProfileProviderWithCapability(profileName, p, providerName, providerpkg.CapabilityGPGKeys)
@@ -255,7 +255,7 @@ Examples:
 				ui.Error("No %s token found for profile %q", def.DisplayName, profileName)
 				ui.Blank()
 				ui.Print("  Connect first: gcm connect %s --provider %s", profileName, def.ID)
-				return nil
+				return missingProviderTokenError(def.DisplayName, profileName)
 			}
 
 			ctx := context.Background()
@@ -270,7 +270,7 @@ Examples:
 					sp.StopError("Could not check existing keys")
 					ui.Warning("Check failed: %v", checkErr)
 					ui.Print("  Use --force to skip the duplicate check")
-					return nil
+					return checkErr
 				}
 				if exists {
 					sp.Stop(fmt.Sprintf("GPG key already exists on %s", def.DisplayName))
@@ -283,7 +283,7 @@ Examples:
 			armoredKey, exportErr := ctr.GPGManager.GetPublicKey(p.GPG.KeyID)
 			if exportErr != nil {
 				ui.Error("Could not export GPG public key: %v", exportErr)
-				return nil
+				return exportErr
 			}
 
 			sp2 := ui.NewSpinner(fmt.Sprintf("Uploading GPG key to %s...", def.DisplayName))
@@ -293,7 +293,7 @@ Examples:
 				sp2.StopError("Failed to upload GPG key")
 				ui.Warning("Upload failed: %v", uploadErr)
 				ui.Print("  You can upload manually at: %s", providerManualKeyURL(def, "gpg"))
-				return nil
+				return uploadErr
 			}
 
 			sp2.Stop(fmt.Sprintf("GPG key uploaded to %s!", def.DisplayName))

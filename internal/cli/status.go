@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/ui"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	fileSvc "git-config-manager/internal/service/file"
+	fileSvc "github.com/sijunda/git-config-manager/internal/service/file"
 )
 
 // ValidateProfile validates a profile configuration.

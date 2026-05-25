@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 
-	"git-config-manager/internal/audit"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -287,7 +287,7 @@ func newGitHubVerifyCmd() *cobra.Command {
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create %s -i", profileName)
-				return nil
+				return profileNotFoundError(profileName)
 			}
 			def, err := githubProviderDefinition()
 			if err != nil {
@@ -339,7 +339,7 @@ func newGitHubUserCmd() *cobra.Command {
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create %s -i", profileName)
-				return nil
+				return profileNotFoundError(profileName)
 			}
 			def, err := githubProviderDefinition()
 			if err != nil {

@@ -133,6 +133,8 @@ Set up shell integration and credential helper.
 
 ```bash
 gcm init
+gcm init --force
+gcm init --clear-global-identity
 ```
 
 **What it does:**
@@ -143,8 +145,14 @@ gcm init
 
 **Output:** The config file path. Restart your shell afterward.
 
+| Flag                      | Short | Default | Description                                     |
+| ------------------------- | ----- | ------- | ----------------------------------------------- |
+| `--force`                 | `-f`  | false   | Reinstall shell integration if already present  |
+| `--clear-global-identity` |       | false   | Explicitly unset global git identity values     |
+
 **Notes:**
-- Fails if integration is already installed. Remove the old block first (see [Shell Integration](shell-integration.md#uninstalling)).
+- Existing global `user.name`, `user.email`, and `user.signingkey` values are left unchanged unless `--clear-global-identity` is passed.
+- Without `--force`, an existing shell integration block is left in place.
 - If auto-detection fails, it suggests specifying manually.
 - The credential helper makes git authentication immune to external credential store changes (VS Code logout, Keychain edits, etc.)
 
@@ -794,13 +802,15 @@ Backup and restore GCM data.
 
 ### `gcm backup create`
 
-Create a timestamped `.tar.gz` backup of `~/.gcm/`.
+Create a timestamped unencrypted `.tar.gz` backup of GCM config, profiles, and templates.
 
 ```bash
 gcm backup create
 ```
 
-**Includes:** `config.yaml`, all profiles, all templates. Backup is stored in `~/.gcm/backups/` with `0600` permissions.
+**Includes:** `config.yaml`, all profiles, all templates. Backup is stored in `~/.gcm/backups/` with `0600` permissions. Provider tokens, audit logs, and SSH private keys are not included.
+
+`backup.encryption: true` and `backup.include_keys: true` fail closed because encrypted/key-inclusive backups are not implemented yet. After creation, configured `backup.retention_days` and `backup.max_backups` are enforced best-effort.
 
 ### `gcm backup list`
 
@@ -821,7 +831,7 @@ Restore from a backup file. Prompts for confirmation before overwriting.
 gcm backup restore ~/.gcm/backups/gcm-backup-2026-05-18-143000.tar.gz
 ```
 
-Restoration is guarded against path-traversal (zip-slip) attacks.
+Restoration is staged before live files are replaced and is guarded against path-traversal (zip-slip) attacks.
 
 ### `gcm backup prune`
 
@@ -915,8 +925,8 @@ Git credential helper implementation. This command is hidden from normal help ou
 
 ```bash
 # Not called directly — git invokes it automatically when configured:
-# credential.https://github.com.helper = !/path/to/gcm credential-helper
-# credential.https://gitlab.com.helper = !/path/to/gcm credential-helper
+# credential.https://github.com.helper = !'/path/to/gcm' credential-helper
+# credential.https://gitlab.com.helper = !'/path/to/gcm' credential-helper
 ```
 
 **Subcommands:**

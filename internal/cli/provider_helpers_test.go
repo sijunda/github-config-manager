@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
 )
 
 func TestCloneRestoreProfileProviderStatePreservesProviderAdjacentState(t *testing.T) {

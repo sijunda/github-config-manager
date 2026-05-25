@@ -18,12 +18,12 @@ The first public release of GCM.
 
 #### Highlights
 
-- **Complete Git identity management** — switch name, email, editor, SSH key, GPG key, and GitHub token with one command
-- **Git credential isolation** — `gcm use` pins `credential.https://github.com.username` and manages `git credential approve/reject` so credentials never bleed between profiles
+- **Complete Git identity management** — switch name, email, editor, SSH key, GPG key, and provider token with one command
+- **Git credential isolation** — `gcm use` pins provider-host credential usernames and manages `git credential approve/reject` so credentials never bleed between profiles
 - **Smart scope fallback** — `gcm use` works anywhere: session scope in git repos, local scope (`.gcm-profile`) elsewhere. No more "not in a git repository" errors
 - **Three activation scopes** — session (shell only), global (default, clears local overrides), and local (pinned to directory)
-- **SSH key generation** — Ed25519, RSA (2048-4096), ECDSA (P-256) with native Go crypto; auto-upload to GitHub if authenticated
-- **GPG signing** — generate keys, enable/disable per profile; auto-upload to GitHub if authenticated
+- **SSH key generation** — Ed25519, RSA (2048-4096), ECDSA (P-256) with native Go crypto; auto-upload to the configured provider if authenticated
+- **GPG signing** — generate keys, enable/disable per profile; auto-upload to the configured provider if authenticated
 - **GitHub OAuth device flow** — secure browser-based authentication
 - **Login credential isolation** — logging into a non-active profile stores the token but does not affect git operations until you switch
 - **Encrypted token storage** — AES-256-GCM with Argon2id (legacy PBKDF2 read-compatible), OS keychain support

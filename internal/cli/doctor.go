@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"git-config-manager/internal/profile"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -36,7 +36,7 @@ func newValidateCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			validateAndPrint(p)
 			return nil
@@ -174,7 +174,7 @@ func checkCommand(label, cmd string, args ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	fullCmd := exec.CommandContext(ctx, cmd, args...)
-	out, err := fullCmd.Output()
+	out, err := fullCmd.CombinedOutput()
 	if err != nil {
 		ui.Print("  %s %s: not installed", ui.Red(ui.IconError), label)
 		return

@@ -9,11 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Changed
 
 ### Added
-- **`gcm ssh upload` / `gcm gpg upload`** — Standalone commands to upload SSH/GPG keys to GitHub with automatic duplicate detection. Use `--force` to skip the check
-- **Auto-upload duplicate detection** — `gcm ssh generate` and `gcm gpg generate` now check if the key already exists on GitHub before offering to upload, preventing duplicates
-- **Built-in credential helper** — GCM registers itself as git's credential helper for github.com (`gcm credential-helper`). Git push/pull/clone reads tokens directly from GCM's encrypted store, bypassing the system keychain entirely. External credential store changes (VS Code logout, browser session clear, etc.) no longer break git authentication
+- **`gcm ssh upload` / `gcm gpg upload`** — Standalone commands to upload SSH/GPG keys to the profile's configured provider with automatic duplicate detection. Use `--force` to skip the check
+- **Auto-upload duplicate detection** — `gcm ssh generate` and `gcm gpg generate` now check if the key already exists on the profile's provider before offering to upload, preventing duplicates
+- **Built-in credential helper** — GCM registers itself as git's credential helper for configured provider hosts (`gcm credential-helper`). Git push/pull/clone reads tokens directly from GCM's encrypted store, bypassing the system keychain entirely. External credential store changes (VS Code logout, browser session clear, etc.) no longer break git authentication
 - **Git credential isolation** — `gcm use` now isolates git credentials per profile. When GCM is the credential helper, credentials are served dynamically from the encrypted store. In legacy mode (system keychain), it clears previous credentials and stores the new profile's token via `git credential approve/reject`, preventing credential bleed between profiles
-- **Credential username pinning** — sets `credential.https://github.com.username` in global git config so git only uses credentials matching the active profile
+- **Credential username pinning** — sets provider-host credential usernames in global git config so git only uses credentials matching the active profile
 - **Smart scope fallback** — `gcm use <name>` works anywhere: inside a git repo → session scope, outside → local scope (writes `.gcm-profile`). No more "not in a git repository" errors
 - **`--global` clears local overrides** — `gcm use <name> --global` now removes any `.gcm-profile` file and session marker in the current directory
 - **`--hide-default` flag on `gcm current`** — outputs nothing when the active profile is the default; ideal for shell prompts that only show an indicator when you've explicitly switched
@@ -25,9 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Dry-run mode for profile activation
 - Session marker file (`.git/gcm-session`) for reliable session detection independent of git config
 - Session-aware profile detection: `gcm current` checks session marker → local marker → email matching → global default
-- SSH key generation (ed25519, RSA, ECDSA) with auto-upload to GitHub
+- SSH key generation (ed25519, RSA, ECDSA) with auto-upload to the configured provider
 - SSH key listing, connection testing, and clipboard copy
-- GPG key generation and commit signing management with auto-upload to GitHub
+- GPG key generation and commit signing management with auto-upload to the configured provider
 - GitHub OAuth device flow authentication (`gcm github login-oauth`)
 - GitHub Personal Access Token (PAT) authentication (`gcm github login`)
 - GitHub CLI token import (`gcm github login-gh`)

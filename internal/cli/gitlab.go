@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"git-config-manager/internal/audit"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

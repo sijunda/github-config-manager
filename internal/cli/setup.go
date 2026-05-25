@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/gpg"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/internal/shell"
-	"git-config-manager/internal/ssh"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/gpg"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/shell"
+	"github.com/sijunda/git-config-manager/internal/ssh"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -44,13 +44,6 @@ func runSetup(ctx context.Context) error {
 	ui.Print("This wizard will guide you through the complete setup.")
 	ui.Print("It takes about 2 minutes. You can skip any step.")
 	ui.Blank()
-
-	// Clear any existing global git identity so the only identity in git
-	// comes from GCM-managed profiles. This prevents commits with stale
-	// or unknown user.name/user.email values.
-	if ctr.Config.DefaultProfile == "" {
-		_ = ctr.ProfileSwitcher.ClearGlobalIdentity()
-	}
 
 	ui.Divider()
 
@@ -390,7 +383,7 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string, def p
 		if verifyErr != nil {
 			ui.Error("GitHub token is invalid: %v", verifyErr)
 			ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm connect %s --provider github", profileName)))
-			return nil
+			return verifyErr
 		}
 		p, _ := ctr.ProfileManager.Get(profileName)
 		if p != nil {
@@ -400,7 +393,7 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string, def p
 			})
 			if transitionErr != nil {
 				ui.Error("Could not update provider: %v", transitionErr)
-				return nil
+				return transitionErr
 			}
 			if !ok {
 				ui.Info("Provider change cancelled")
@@ -419,7 +412,7 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string, def p
 	if flowErr != nil {
 		ui.Error("Could not start GitHub device flow: %v", flowErr)
 		ui.Print("  %s Try PAT instead: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm connect %s --provider github", profileName)))
-		return nil
+		return flowErr
 	}
 	ui.Print("Open this URL in your browser:")
 	ui.Print("  %s", ui.Cyan(dcr.VerificationURI))
@@ -433,7 +426,7 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string, def p
 	if pollErr != nil {
 		sp.StopError("GitHub authorization failed")
 		ui.Error("%v", pollErr)
-		return nil
+		return pollErr
 	}
 	sp.Stop("GitHub authorized!")
 
@@ -450,7 +443,7 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string, def p
 		})
 		if transitionErr != nil {
 			ui.Error("Could not update provider: %v", transitionErr)
-			return nil
+			return transitionErr
 		}
 		if !ok {
 			ui.Info("Provider change cancelled")
@@ -484,7 +477,7 @@ func runSetupGitLabAuthentication(ctx context.Context, profileName string, def p
 	if verifyErr != nil {
 		ui.Error("GitLab token is invalid: %v", verifyErr)
 		ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm connect %s --provider gitlab", profileName)))
-		return nil
+		return verifyErr
 	}
 
 	p, _ := ctr.ProfileManager.Get(profileName)
@@ -494,7 +487,7 @@ func runSetupGitLabAuthentication(ctx context.Context, profileName string, def p
 		})
 		if transitionErr != nil {
 			ui.Error("Could not update provider: %v", transitionErr)
-			return nil
+			return transitionErr
 		}
 		if !ok {
 			ui.Info("Provider change cancelled")

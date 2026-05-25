@@ -6,28 +6,38 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 // Test hooks for unreachable OS/IO error paths.
 var (
-	osOpenFileFn     = os.OpenFile
-	backupAbsFn      = filepath.Abs
-	backupRelFn      = filepath.Rel
-	backupMkdirFn    = os.MkdirAll
-	backupReadDirFn  = os.ReadDir
-	tarCloseFn       = func(tw *tar.Writer) error { return tw.Close() }
-	gzipCloseFn      = func(gzw *gzip.Writer) error { return gzw.Close() }
-	fileStatFn       = func(f *os.File) (os.FileInfo, error) { return f.Stat() }
-	tarWriteHeaderFn = func(tw *tar.Writer, hdr *tar.Header) error { return tw.WriteHeader(hdr) }
-	restoreMkdirFn   = os.MkdirAll
+	osOpenFileFn       = os.OpenFile
+	backupAbsFn        = filepath.Abs
+	backupRelFn        = filepath.Rel
+	backupMkdirFn      = os.MkdirAll
+	backupRemoveFn     = os.Remove
+	backupReadDirFn    = os.ReadDir
+	tarCloseFn         = func(tw *tar.Writer) error { return tw.Close() }
+	gzipCloseFn        = func(gzw *gzip.Writer) error { return gzw.Close() }
+	fileStatFn         = func(f *os.File) (os.FileInfo, error) { return f.Stat() }
+	tarWriteHeaderFn   = func(tw *tar.Writer, hdr *tar.Header) error { return tw.WriteHeader(hdr) }
+	restoreMkdirTempFn = os.MkdirTemp
+	restoreMkdirFn     = os.MkdirAll
+	restoreRemoveFn    = os.Remove
+	restoreRenameFn    = os.Rename
+	restoreChmodFn     = os.Chmod
+	restoreLstatFn     = os.Lstat
+	restoreStatFn      = os.Stat
+	restoreRelFn       = filepath.Rel
+	restoreEntryInfoFn = func(entry fs.DirEntry) (fs.FileInfo, error) { return entry.Info() }
 )
 
 // Manager handles backup and restore operations.
@@ -50,8 +60,17 @@ type BackupInfo struct {
 	Templates int
 }
 
+type restoreChange struct {
+	rel         string
+	hadOriginal bool
+}
+
 // Create creates a backup of all GCM data.
 func (m *Manager) Create() (*BackupInfo, error) {
+	if err := m.validateCreateOptions(); err != nil {
+		return nil, err
+	}
+
 	backupDir := filepath.Join(config.GCMDir(), "backups")
 	if err := os.MkdirAll(backupDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating backup directory: %w", err)
@@ -137,13 +156,43 @@ func (m *Manager) Create() (*BackupInfo, error) {
 		logger.F("templates", templateCount))
 
 	success = true
-	return &BackupInfo{
+	info := &BackupInfo{
 		Path:      backupPath,
 		Size:      fInfo.Size(),
 		Created:   time.Now(),
 		Profiles:  profileCount,
 		Templates: templateCount,
-	}, nil
+	}
+	m.enforceRetention()
+	return info, nil
+}
+
+func (m *Manager) validateCreateOptions() error {
+	if m.cfg.Backup.Encryption {
+		return fmt.Errorf("encrypted backups are not implemented; set backup.encryption=false or do not create backups until encryption support is available")
+	}
+	if m.cfg.Backup.IncludeKeys {
+		return fmt.Errorf("backup.include_keys requires encrypted backup support and is disabled")
+	}
+	return nil
+}
+
+func (m *Manager) enforceRetention() {
+	if m.cfg.Backup.RetentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -m.cfg.Backup.RetentionDays)
+		if removed, err := m.PruneOlderThan(cutoff); err != nil {
+			m.log.Warn("Failed to prune backups by age", logger.F("error", err))
+		} else if removed > 0 {
+			m.log.Debug("Pruned backups by age", logger.F("removed", removed))
+		}
+	}
+	if m.cfg.Backup.MaxBackups > 0 {
+		if removed, err := m.Prune(m.cfg.Backup.MaxBackups); err != nil {
+			m.log.Warn("Failed to prune backups by count", logger.F("error", err))
+		} else if removed > 0 {
+			m.log.Debug("Pruned backups by count", logger.F("removed", removed))
+		}
+	}
 }
 
 // Restore restores from a backup file. It refuses to extract entries whose
@@ -154,6 +203,33 @@ func (m *Manager) Create() (*BackupInfo, error) {
 const maxExtractSize = 10 << 20 // 10 MiB per file
 
 func (m *Manager) Restore(backupPath string) error {
+	gcmDir := config.GCMDir()
+	gcmDirAbs, err := backupAbsFn(gcmDir)
+	if err != nil {
+		return fmt.Errorf("resolving GCM dir: %w", err)
+	}
+	if err := backupMkdirFn(gcmDirAbs, 0o700); err != nil {
+		return fmt.Errorf("creating GCM directory: %w", err)
+	}
+
+	stagingDir, err := restoreMkdirTempFn(gcmDirAbs, ".restore-*")
+	if err != nil {
+		return fmt.Errorf("creating restore staging directory: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	if err := m.extractArchive(backupPath, stagingDir); err != nil {
+		return err
+	}
+	if err := m.applyStagedRestore(stagingDir, gcmDirAbs); err != nil {
+		return err
+	}
+
+	m.log.Debug("Backup restored", logger.F("path", backupPath))
+	return nil
+}
+
+func (m *Manager) extractArchive(backupPath, stagingDir string) error {
 	f, err := os.Open(backupPath)
 	if err != nil {
 		return fmt.Errorf("opening backup: %w", err)
@@ -171,13 +247,9 @@ func (m *Manager) Restore(backupPath string) error {
 	defer gzr.Close()
 
 	tr := tar.NewReader(gzr)
-	gcmDir := config.GCMDir()
-
-	// Resolve the destination once so path-traversal checks below compare
-	// against the real, canonical directory.
-	gcmDirAbs, err := backupAbsFn(gcmDir)
+	stagingAbs, err := backupAbsFn(stagingDir)
 	if err != nil {
-		return fmt.Errorf("resolving GCM dir: %w", err)
+		return fmt.Errorf("resolving restore staging dir: %w", err)
 	}
 
 	for {
@@ -199,15 +271,15 @@ func (m *Manager) Restore(backupPath string) error {
 		}
 
 		// Reject absolute paths and any entry whose cleaned path escapes the
-		// GCM directory (zip-slip / tar-slip).
+		// staging directory (zip-slip / tar-slip).
 		cleanName := filepath.Clean(header.Name)
-		if filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "..") {
+		if filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "..") || strings.Contains(header.Name, `\`) {
 			return fmt.Errorf("refusing to extract unsafe path %q from backup", header.Name)
 		}
 
-		target := filepath.Join(gcmDirAbs, cleanName)
-		rel, err := backupRelFn(gcmDirAbs, target)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		target := filepath.Join(stagingAbs, cleanName)
+		rel, err := backupRelFn(stagingAbs, target)
+		if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
 			return fmt.Errorf("refusing to extract unsafe path %q from backup", header.Name)
 		}
 
@@ -218,7 +290,6 @@ func (m *Manager) Restore(backupPath string) error {
 			continue
 		}
 
-		// Ensure parent directory exists
 		if err := restoreMkdirFn(filepath.Dir(target), 0o700); err != nil {
 			return fmt.Errorf("creating directory: %w", err)
 		}
@@ -234,7 +305,7 @@ func (m *Manager) Restore(backupPath string) error {
 			mode = 0o600
 		}
 
-		outFile, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+		outFile, err := osOpenFileFn(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 		if err != nil {
 			return fmt.Errorf("creating file %s: %w", target, err)
 		}
@@ -249,7 +320,111 @@ func (m *Manager) Restore(backupPath string) error {
 		}
 	}
 
-	m.log.Debug("Backup restored", logger.F("path", backupPath))
+	return nil
+}
+
+func (m *Manager) applyStagedRestore(stagingDir, gcmDirAbs string) error {
+	rollbackDir, err := restoreMkdirTempFn(gcmDirAbs, ".restore-rollback-*")
+	if err != nil {
+		return fmt.Errorf("creating restore rollback directory: %w", err)
+	}
+	rollbackComplete := false
+	defer func() {
+		if rollbackComplete {
+			os.RemoveAll(rollbackDir)
+		}
+	}()
+
+	var changes []restoreChange
+	var createdDirs []string
+	rollback := func() {
+		for i := len(changes) - 1; i >= 0; i-- {
+			change := changes[i]
+			target := filepath.Join(gcmDirAbs, change.rel)
+			_ = os.RemoveAll(target)
+			if change.hadOriginal {
+				backupPath := filepath.Join(rollbackDir, change.rel)
+				_ = os.MkdirAll(filepath.Dir(target), 0o700)
+				_ = os.Rename(backupPath, target)
+			}
+		}
+		for i := len(createdDirs) - 1; i >= 0; i-- {
+			_ = restoreRemoveFn(createdDirs[i])
+		}
+	}
+
+	err = filepath.WalkDir(stagingDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == stagingDir {
+			return nil
+		}
+
+		rel, err := restoreRelFn(stagingDir, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(gcmDirAbs, rel)
+
+		if entry.IsDir() {
+			if info, err := restoreStatFn(target); err == nil {
+				if !info.IsDir() {
+					return fmt.Errorf("restore target %s is not a directory", target)
+				}
+				return nil
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("checking restore directory %s: %w", target, err)
+			}
+			if err := restoreMkdirFn(target, 0o700); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
+			}
+			createdDirs = append(createdDirs, target)
+			return nil
+		}
+
+		info, err := restoreEntryInfoFn(entry)
+		if err != nil {
+			return fmt.Errorf("reading staged file info: %w", err)
+		}
+		if err := restoreMkdirFn(filepath.Dir(target), 0o700); err != nil {
+			return fmt.Errorf("creating directory: %w", err)
+		}
+
+		change := restoreChange{rel: rel}
+		if _, err := restoreLstatFn(target); err == nil {
+			backupPath := filepath.Join(rollbackDir, rel)
+			if err := restoreMkdirFn(filepath.Dir(backupPath), 0o700); err != nil {
+				return fmt.Errorf("creating rollback directory: %w", err)
+			}
+			if err := restoreRenameFn(target, backupPath); err != nil {
+				return fmt.Errorf("staging existing file for rollback: %w", err)
+			}
+			change.hadOriginal = true
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("checking restore target %s: %w", target, err)
+		}
+
+		if err := restoreRenameFn(path, target); err != nil {
+			if change.hadOriginal {
+				_ = restoreRenameFn(filepath.Join(rollbackDir, rel), target)
+			}
+			return fmt.Errorf("applying restored file %s: %w", target, err)
+		}
+		if err := restoreChmodFn(target, info.Mode().Perm()&0o700); err != nil {
+			changes = append(changes, change)
+			return fmt.Errorf("setting restored file permissions: %w", err)
+		}
+		changes = append(changes, change)
+		return nil
+	})
+	if err != nil {
+		rollback()
+		rollbackComplete = true
+		return err
+	}
+
+	rollbackComplete = true
 	return nil
 }
 
@@ -305,7 +480,7 @@ func (m *Manager) Prune(keep int) (int, error) {
 
 	removed := 0
 	for _, b := range backups[keep:] {
-		if err := os.Remove(b.Path); err != nil {
+		if err := backupRemoveFn(b.Path); err != nil {
 			m.log.Warn("Failed to remove backup", logger.F("path", b.Path))
 			continue
 		}
@@ -313,6 +488,27 @@ func (m *Manager) Prune(keep int) (int, error) {
 	}
 
 	m.log.Debug("Backups pruned", logger.F("removed", removed), logger.F("kept", keep))
+	return removed, nil
+}
+
+// PruneOlderThan removes backups older than the provided cutoff time.
+func (m *Manager) PruneOlderThan(cutoff time.Time) (int, error) {
+	backups, err := m.List()
+	if err != nil {
+		return 0, err
+	}
+
+	removed := 0
+	for _, backup := range backups {
+		if !backup.Created.Before(cutoff) {
+			continue
+		}
+		if err := backupRemoveFn(backup.Path); err != nil {
+			m.log.Warn("Failed to remove expired backup", logger.F("path", backup.Path), logger.F("error", err))
+			continue
+		}
+		removed++
+	}
 	return removed, nil
 }
 

@@ -6,12 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/gpg"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/internal/ssh"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/gpg"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/ssh"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -321,7 +321,7 @@ func newProfileShowCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			ui.Header("Profile: %s", p.Name)
 			ui.SubHeader("Git Configuration")
@@ -379,7 +379,7 @@ Examples:
 				ui.Error("profile %q not found", profileName)
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(profileName)
 			}
 
 			// Determine if any flag was explicitly set
@@ -662,7 +662,7 @@ func newProfileExportCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			fmt.Fprint(os.Stdout, string(data))
 			return nil
@@ -680,7 +680,7 @@ func newProfileImportCmd() *cobra.Command {
 				ui.Blank()
 				ui.Print("  Make sure the file path is correct.")
 				ui.Print("  To export a profile: gcm profile export <name> > file.yaml")
-				return nil
+				return fmt.Errorf("could not read file %q: %w", args[0], err)
 			}
 			p, err := ctr.ProfileManager.Import(data)
 			if err != nil {
@@ -701,14 +701,14 @@ func newProfileDiffCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			p2, err := ctr.ProfileManager.Get(args[1])
 			if err != nil {
 				ui.Error("profile %q not found", args[1])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[1])
 			}
 			ui.Header("Comparing: %s vs %s", args[0], args[1])
 			diffField("Name", p1.Git.User.Name, p2.Git.User.Name, args[0], args[1])

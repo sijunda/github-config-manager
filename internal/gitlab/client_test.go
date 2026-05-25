@@ -10,9 +10,9 @@ import (
 	"os"
 	"testing"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/provider"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {
@@ -32,6 +32,25 @@ func TestNewClientDefaultsAPIURL(t *testing.T) {
 	client := NewClient(config.ProviderConfig{}, logger.New(logger.LevelError, io.Discard))
 	if client.apiURL != "https://gitlab.com/api/v4" {
 		t.Fatalf("apiURL = %q", client.apiURL)
+	}
+}
+
+func TestWithTokenSetReturnsTokenScopedClone(t *testing.T) {
+	client := NewClient(config.ProviderConfig{APIURL: "https://gitlab.example/api/v4"}, logger.New(logger.LevelError, io.Discard))
+	client.SetToken("original")
+
+	clone := client.WithTokenSet(provider.TokenSet{AccessToken: "scoped", AuthMethod: provider.AuthMethodOAuthDevice, TokenType: "bearer"})
+	if clone == client {
+		t.Fatal("WithTokenSet returned original client")
+	}
+	if clone.token.AccessToken != "scoped" || !clone.token.Bearer() {
+		t.Fatalf("clone token = %+v, want scoped bearer", clone.token)
+	}
+	if client.token.AccessToken != "original" {
+		t.Fatalf("original token = %q, want original", client.token.AccessToken)
+	}
+	if clone.httpClient != client.httpClient {
+		t.Fatal("clone should share HTTP client")
 	}
 }
 

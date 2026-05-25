@@ -1,4 +1,4 @@
-module git-config-manager
+module github.com/sijunda/git-config-manager
 
 go 1.26.0
 

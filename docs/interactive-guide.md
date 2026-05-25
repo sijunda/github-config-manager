@@ -430,7 +430,7 @@ Shell
 2. The hook checks if a `.gcm-profile` file exists
 3. If it does, GCM automatically switches to that profile
 4. Also adds a prompt indicator showing your active profile name
-5. Registers GCM's built-in credential helper for `github.com` (serves tokens from GCM's encrypted store, immune to VS Code logout)
+5. Registers GCM's built-in credential helper for configured provider hosts (serves tokens from GCM's encrypted store, immune to VS Code logout)
 
 ---
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 func newTestManager(t *testing.T) *Manager {

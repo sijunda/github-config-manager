@@ -1,17 +1,19 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/shell"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/shell"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
 
 func newInitCmd() *cobra.Command {
 	var force bool
+	var clearGlobalIdentity bool
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -20,17 +22,20 @@ func newInitCmd() *cobra.Command {
 and register GCM as the git credential helper for configured providers.
 
 Use --force to reinstall even if already configured.
+Use --clear-global-identity only when you explicitly want GCM to remove
+global git user.name, user.email, and user.signingkey.
 
 Examples:
   gcm init                          # Auto-detect and install
   gcm init --force                  # Force reinstall
+	gcm init --clear-global-identity  # Explicitly clear global git identity
   SHELL=/bin/zsh gcm init           # Override shell detection`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			shellType := ctr.ShellManager.DetectShell()
 			if shellType == shell.ShellUnknown {
 				ui.Error("Could not detect your shell")
 				ui.Info("Set SHELL environment variable and retry: SHELL=/bin/zsh gcm init")
-				return nil
+				return fmt.Errorf("could not detect shell")
 			}
 
 			ui.Header("%s Setting up GCM for %s", ui.IconRocket, string(shellType))
@@ -81,13 +86,19 @@ Examples:
 				ui.Detail("Scope", strings.Join(credentialHelperServers(), ", "))
 			}
 
-			// Clear global git identity if no profile is set as default.
-			if ctr.Config.DefaultProfile == "" {
-				_ = ctr.ProfileSwitcher.ClearGlobalIdentity()
+			if clearGlobalIdentity {
+				if err := ctr.ProfileSwitcher.ClearGlobalIdentity(); err != nil {
+					return fmt.Errorf("clear global git identity: %w", err)
+				}
 				ui.Blank()
-				ui.Info("Global git identity cleared — activate a profile to set your identity:")
+				ui.Info("Global git identity cleared by explicit request — activate a profile to set your identity:")
 				ui.Print("  gcm setup          (guided wizard)")
 				ui.Print("  gcm use <profile>  (if you already have profiles)")
+			} else if ctr.Config.DefaultProfile == "" {
+				ui.Blank()
+				ui.Info("Global git identity was left unchanged. Activate a GCM profile when you want it managed:")
+				ui.Print("  gcm setup")
+				ui.Print("  gcm use <profile>")
 			}
 
 			return nil
@@ -95,5 +106,6 @@ Examples:
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force reinstall shell integration")
+	cmd.Flags().BoolVar(&clearGlobalIdentity, "clear-global-identity", false, "Explicitly clear global git user identity")
 	return cmd
 }

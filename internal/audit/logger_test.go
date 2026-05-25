@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/config"
 )
 
 func setupTestLogger(t *testing.T, enabled bool) *Logger {

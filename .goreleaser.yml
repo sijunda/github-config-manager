@@ -24,9 +24,9 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X git-config-manager/pkg/version.Version={{.Version}}
-      - -X git-config-manager/pkg/version.Commit={{.Commit}}
-      - -X git-config-manager/pkg/version.Date={{.Date}}
+      - -X github.com/sijunda/git-config-manager/pkg/version.Version={{.Version}}
+      - -X github.com/sijunda/git-config-manager/pkg/version.Commit={{.Commit}}
+      - -X github.com/sijunda/git-config-manager/pkg/version.Date={{.Date}}
 
 archives:
   - format: tar.gz
@@ -49,24 +49,3 @@ changelog:
       - "^test:"
       - "^chore:"
       - "^ci:"
-
-brews:
-  - repository:
-      owner: gcm
-      name: homebrew-tap
-    directory: Formula
-    homepage: "https://gcm.dev"
-    description: "Git Config Manager - Manage your Git identities with ease"
-    license: "MIT"
-    install: |
-      bin.install "gcm"
-    test: |
-      system "#{bin}/gcm", "version"
-
-scoops:
-  - repository:
-      owner: gcm
-      name: scoop-bucket
-    homepage: "https://gcm.dev"
-    description: "Git Config Manager - Manage your Git identities with ease"
-    license: "MIT"

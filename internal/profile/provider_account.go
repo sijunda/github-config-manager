@@ -1,6 +1,6 @@
 package profile
 
-import providerpkg "git-config-manager/internal/provider"
+import providerpkg "github.com/sijunda/git-config-manager/internal/provider"
 
 // ProviderAccount returns the account metadata for a provider, including the
 // legacy GitHub field for backward-compatible profiles.

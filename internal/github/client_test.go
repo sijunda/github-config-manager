@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"git-config-manager/internal/config"
-	cryptoSvc "git-config-manager/internal/service/crypto"
-	"git-config-manager/internal/tokenstore"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	cryptoSvc "github.com/sijunda/git-config-manager/internal/service/crypto"
+	"github.com/sijunda/git-config-manager/internal/tokenstore"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 // plainTextConfig returns a config with all token encryption and keychain
@@ -29,6 +29,7 @@ func plainTextConfig() *config.Config {
 	cfg.Security.EncryptTokens = false
 	cfg.Security.UseKeychain = false
 	cfg.Security.MasterPassword = false
+	cfg.Security.AllowPlaintextTokens = true
 	return cfg
 }
 
@@ -136,6 +137,26 @@ func TestSetToken(t *testing.T) {
 	c.SetToken("mytoken")
 	if c.token != "mytoken" {
 		t.Errorf("token = %q", c.token)
+	}
+}
+
+func TestWithTokenReturnsTokenScopedClone(t *testing.T) {
+	cfg := plainTextConfig()
+	c := NewClient(cfg, logger.New(logger.LevelError, io.Discard), nil)
+	c.SetToken("original")
+
+	clone := c.WithToken("scoped")
+	if clone == c {
+		t.Fatal("WithToken returned original client")
+	}
+	if clone.token != "scoped" {
+		t.Fatalf("clone token = %q, want scoped", clone.token)
+	}
+	if c.token != "original" {
+		t.Fatalf("original token = %q, want original", c.token)
+	}
+	if clone.httpClient != c.httpClient {
+		t.Fatal("clone should share HTTP client")
 	}
 }
 

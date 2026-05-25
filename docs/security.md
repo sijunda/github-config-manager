@@ -35,7 +35,7 @@ This document describes GCM's security architecture, threat model, encryption de
 
 ## Token Storage
 
-GitHub OAuth tokens are stored using one of three backends, selected based on `security` configuration:
+Provider tokens are stored using one of three backends, selected based on `security` configuration:
 
 ### 1. OS Keychain (default)
 
@@ -56,16 +56,19 @@ When `security.encrypt_tokens: true` and `security.master_password: true`:
 - Derives an AES-256 key from the master password using **Argon2id** (time=3, memory=64 MiB, threads=4)
 - Generates a random 16-byte salt per token
 - Encrypts the token with **AES-256-GCM** (authenticated encryption)
-- On-disk format (v2): `[0x02 | 2-byte salt-length | salt | ciphertext]` in `~/.gcm/tokens/<profile>.token` with `0600` permissions
+- On-disk format (v2): `[0x02 | 2-byte salt-length | salt | ciphertext]` in `~/.gcm/tokens/<profile>__<provider>__<host>__<account>.token` with `0600` permissions
 - Legacy tokens (v1, PBKDF2-derived) are transparently decrypted on read but re-encrypted with Argon2id on next save
 - Master password is prompted once per session and cached in memory
 
-### 3. Plain-Text File (fallback)
+If keychain storage fails and encrypted file storage is configured with `security.master_password: true`, GCM falls back to encrypted file storage. If neither secure backend is available, token save/load fails closed.
 
-If both keychain and encryption are disabled:
+### 3. Plain-Text File (explicit opt-in only)
 
-- Token written to `~/.gcm/tokens/<profile>` with `0600` permissions
+When `security.allow_plaintext_tokens: true`:
+
+- Token written to `~/.gcm/tokens/<profile>__<provider>__<host>__<account>.token` with `0600` permissions
 - Relies solely on filesystem ACLs for protection
+- Disabled by default; use only in constrained environments where no keychain or master-password encrypted storage is available
 
 ---
 
@@ -142,13 +145,13 @@ When switching profiles with `gcm use`, GCM ensures git operations authenticate 
 
 ### How It Works
 
-1. **Reject old credentials** — calls `git credential reject` for the previous profile's GitHub credentials, clearing them from the OS credential store
+1. **Reject old credentials** — calls `git credential reject` for the previous profile's provider credentials, clearing them from the OS credential store
 2. **Approve new credentials** — calls `git credential approve` with the new profile's username and token, pre-seeding the credential store
-3. **Pin username** — sets `credential.https://github.com.username` in global git config to the active profile's username
+3. **Pin username** — sets the provider-host `credential.*.username` value in global git config to the active profile's username
 
 ### Why Pinning Matters
 
-Git's credential helper may have multiple stored credentials for `github.com`. Without pinning, git picks the first match — often the wrong profile. The `credential.*.username` configuration tells git to **only accept credentials matching that username**, preventing bleed.
+Git's credential helper may have multiple stored credentials for the same provider host. Without pinning, git picks the first match — often the wrong profile. The `credential.*.username` configuration tells git to **only accept credentials matching that username**, preventing bleed.
 
 ### Login Isolation
 
@@ -174,13 +177,15 @@ GCM includes a built-in git credential helper that bypasses the system keychain 
 
 ### How It Works
 
-1. `gcm init` (or `gcm setup`) registers GCM as the credential helper for `github.com`:
+1. `gcm init` (or `gcm setup`) registers GCM as the credential helper for configured provider hosts:
    ```
    [credential "https://github.com"]
-       helper = !/path/to/gcm credential-helper
+     helper = !'/path/to/gcm' credential-helper
+   [credential "https://gitlab.com"]
+     helper = !'/path/to/gcm' credential-helper
    ```
 2. When git needs credentials, it calls `gcm credential-helper get`
-3. GCM resolves the active profile, reads the token from its own encrypted store (`~/.gcm/tokens/<profile>`), and returns it to git
+3. GCM resolves the active profile, reads the provider-aware token from its own encrypted store, and returns it to git
 4. `gcm credential-helper store` and `gcm credential-helper erase` handle the full credential helper protocol
 
 ### Why This Matters
@@ -193,7 +198,7 @@ GCM includes a built-in git credential helper that bypasses the system keychain 
 
 ### Encryption
 
-Tokens in `~/.gcm/tokens/<profile>.token` are encrypted with **AES-256-GCM** (Argon2id key derivation). The credential helper decrypts in-memory and never writes plaintext tokens to disk or passes them via command-line arguments.
+Provider-aware token files in `~/.gcm/tokens/` are encrypted with **AES-256-GCM** (Argon2id key derivation). The credential helper decrypts in-memory and never writes plaintext tokens to disk or passes them via command-line arguments.
 
 ### Diagnostics
 
@@ -238,7 +243,7 @@ GCM only stores the **GPG key ID** in the profile YAML. The actual key material 
 | `profiles/*.yaml`      | `0644` | Profile data (no secrets)           |
 | `tokens/*`             | `0600` | Encrypted tokens                    |
 | `logs/*.jsonl`         | `0600` | Audit log entries                   |
-| `backups/*.tar.gz`     | `0600` | Configuration snapshots             |
+| `backups/*.tar.gz`     | `0600` | Unencrypted configuration snapshots |
 | SSH private keys       | `0600` | Standard SSH requirement            |
 | SSH public keys        | `0644` | Standard SSH requirement            |
 
@@ -254,6 +259,8 @@ During `gcm backup restore`, every tar entry's path is validated:
 2. The result is checked to ensure it starts with the target directory prefix
 3. Any entry that would escape the target directory is rejected
 
+The archive is fully extracted into a staging directory before live files are replaced, so extraction failures do not partially overwrite existing profiles, templates, or config.
+
 ### Backup Contents
 
 Backups include:
@@ -261,10 +268,12 @@ Backups include:
 - All profile YAML files
 - All template YAML files
 
-Backups **do not** include by default:
-- SSH private keys (controlled by `backup.include_keys`)
+Backups **do not** include:
+- SSH private keys (`backup.include_keys: true` fails closed until encrypted backup support exists)
 - Provider tokens
 - Audit logs
+
+Backup archives are unencrypted `.tar.gz` files. `backup.encryption: true` fails closed rather than producing a misleading unencrypted archive.
 
 ---
 

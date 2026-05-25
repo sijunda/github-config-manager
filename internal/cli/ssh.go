@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/internal/ssh"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/ssh"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -57,7 +57,7 @@ Examples:
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
 				ui.Print("  To create a new profile:   gcm profile create " + profileName + " -i")
-				return nil
+				return profileNotFoundError(profileName)
 			}
 			keyProfileName := sshKeyProfileName(profileName, p)
 
@@ -180,13 +180,13 @@ Examples:
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", args[0])
 				ui.Blank()
 				ui.Print("  To generate one: gcm ssh generate %s", args[0])
-				return nil
+				return profileMissingSSHKeyError(args[0])
 			}
 
 			def, err := selectProfileProviderWithCapability(args[0], p, providerName, providerpkg.CapabilitySSHKeys)
@@ -226,13 +226,13 @@ func newSSHCopyCmd() *cobra.Command {
 				ui.Error("profile %q not found", args[0])
 				ui.Blank()
 				ui.Print("  To see available profiles: gcm profile list")
-				return nil
+				return profileNotFoundError(args[0])
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", args[0])
 				ui.Blank()
 				ui.Print("  To generate one: gcm ssh generate %s", args[0])
-				return nil
+				return profileMissingSSHKeyError(args[0])
 			}
 			pubKey, err := ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
 			if err != nil {
@@ -268,13 +268,13 @@ Examples:
 			p, err := ctr.ProfileManager.Get(profileName)
 			if err != nil {
 				ui.Error("profile %q not found", profileName)
-				return nil
+				return profileNotFoundError(profileName)
 			}
 			if p.SSH == nil || p.SSH.KeyPath == "" {
 				ui.Error("profile %q has no SSH key configured", profileName)
 				ui.Blank()
 				ui.Print("  To generate one: gcm ssh generate %s", profileName)
-				return nil
+				return profileMissingSSHKeyError(profileName)
 			}
 
 			def, err := selectProfileProviderWithCapability(profileName, p, providerName, providerpkg.CapabilitySSHKeys)
@@ -287,7 +287,7 @@ Examples:
 				ui.Error("No %s token found for profile %q", def.DisplayName, profileName)
 				ui.Blank()
 				ui.Print("  Connect first: gcm connect %s --provider %s", profileName, def.ID)
-				return nil
+				return missingProviderTokenError(def.DisplayName, profileName)
 			}
 
 			pubKey, err := ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
@@ -307,7 +307,7 @@ Examples:
 					sp.StopError("Could not check existing keys")
 					ui.Warning("Check failed: %v", checkErr)
 					ui.Print("  Use --force to skip the duplicate check")
-					return nil
+					return checkErr
 				}
 				if exists {
 					sp.Stop(fmt.Sprintf("Key already exists on %s", def.DisplayName))
@@ -325,7 +325,7 @@ Examples:
 				sp2.StopError("Failed to upload SSH key")
 				ui.Warning("Upload failed: %v", uploadErr)
 				ui.Print("  You can upload manually at: %s", providerManualKeyURL(def, "ssh"))
-				return nil
+				return uploadErr
 			}
 
 			sp2.Stop(fmt.Sprintf("SSH key uploaded to %s!", def.DisplayName))

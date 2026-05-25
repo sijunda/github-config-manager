@@ -2,8 +2,8 @@
 package cli
 
 import (
-	"git-config-manager/internal/container"
-	"git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/internal/container"
+	"github.com/sijunda/git-config-manager/pkg/ui"
 
 	"github.com/spf13/cobra"
 )

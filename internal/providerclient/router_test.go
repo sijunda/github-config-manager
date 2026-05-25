@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/github"
-	"git-config-manager/internal/gitlab"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/github"
+	"github.com/sijunda/git-config-manager/internal/gitlab"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 func TestRouterVerifyPATRoutesToProviderClient(t *testing.T) {
@@ -197,6 +197,34 @@ func TestRouterRejectsUnsupportedProviderAndEmptyToken(t *testing.T) {
 	}
 }
 
+func TestRouterRoutesRegisteredAdapter(t *testing.T) {
+	adapter := &stubAdapter{}
+	router := NewRouterWithAdapters(map[providerpkg.ProviderID]Adapter{
+		providerpkg.BitbucketID: adapter,
+	})
+	def := providerpkg.Definition{ID: providerpkg.BitbucketID, DisplayName: "Bitbucket"}
+	token := providerpkg.TokenSet{AccessToken: "bb-token", AuthMethod: providerpkg.AuthMethodPAT}
+
+	user, err := router.VerifyPAT(context.Background(), def, "bb-pat")
+	if err != nil {
+		t.Fatalf("VerifyPAT: %v", err)
+	}
+	if user.Username != "bitbucket-user" || adapter.verifyToken != "bb-pat" {
+		t.Fatalf("registered VerifyPAT user=%+v token=%q", user, adapter.verifyToken)
+	}
+	if exists, err := router.SSHKeyExists(context.Background(), def, token, "ssh-ed25519 AAAA"); err != nil || !exists {
+		t.Fatalf("SSHKeyExists = %v, %v; want true, nil", exists, err)
+	}
+	if adapter.sshToken != "bb-token" {
+		t.Fatalf("registered adapter token = %q", adapter.sshToken)
+	}
+
+	router.Register(providerpkg.BitbucketID, nil)
+	if _, err := router.VerifyPAT(context.Background(), def, "bb-pat"); err == nil || !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("removed adapter error = %v", err)
+	}
+}
+
 func TestRouterVerifyPATWrapsProviderErrors(t *testing.T) {
 	log := logger.New(logger.LevelError, io.Discard)
 	githubServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -304,4 +332,105 @@ func TestRouterOperationSetTokenErrors(t *testing.T) {
 	if _, err := router.DeleteGPGKey(ctx, gitlabDef, token, "ABC123"); err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Fatalf("DeleteGPGKey missing client error = %v", err)
 	}
+}
+
+func TestRouterNilAndAdapterTokenErrors(t *testing.T) {
+	ctx := context.Background()
+	githubDef := providerpkg.Definition{ID: providerpkg.GitHubID, DisplayName: "GitHub"}
+	gitlabDef := providerpkg.Definition{ID: providerpkg.GitLabID, DisplayName: "GitLab"}
+	emptyToken := providerpkg.TokenSet{}
+
+	var nilRouter *Router
+	if _, err := nilRouter.VerifyPAT(ctx, githubDef, "token"); err == nil || !strings.Contains(err.Error(), "router is not configured") {
+		t.Fatalf("nil router error = %v", err)
+	}
+
+	githubAdapter := gitHubAdapter{client: github.NewClient(config.DefaultConfig(), logger.New(logger.LevelError, io.Discard), nil)}
+	if _, err := githubAdapter.VerifyPAT(ctx, ""); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub VerifyPAT empty token error = %v", err)
+	}
+	if _, err := githubAdapter.SSHKeyExists(ctx, emptyToken, "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub SSHKeyExists empty token error = %v", err)
+	}
+	if err := githubAdapter.UploadSSHKey(ctx, emptyToken, "title", "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub UploadSSHKey empty token error = %v", err)
+	}
+	if _, err := githubAdapter.DeleteSSHKey(ctx, emptyToken, "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub DeleteSSHKey empty token error = %v", err)
+	}
+	if _, err := githubAdapter.GPGKeyExists(ctx, emptyToken, "ABC123"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub GPGKeyExists empty token error = %v", err)
+	}
+	if err := githubAdapter.UploadGPGKey(ctx, emptyToken, "armored"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub UploadGPGKey empty token error = %v", err)
+	}
+	if _, err := githubAdapter.DeleteGPGKey(ctx, emptyToken, "ABC123"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitHub DeleteGPGKey empty token error = %v", err)
+	}
+	if _, err := (gitHubAdapter{}).clientWithToken(providerpkg.TokenSet{AccessToken: "token"}); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("GitHub nil client error = %v", err)
+	}
+
+	gitlabAdapter := gitLabAdapter{client: gitlab.NewClient(config.ProviderConfig{APIURL: "https://gitlab.example/api/v4"}, logger.New(logger.LevelError, io.Discard))}
+	if _, err := gitlabAdapter.VerifyPAT(ctx, ""); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab VerifyPAT empty token error = %v", err)
+	}
+	if _, err := gitlabAdapter.SSHKeyExists(ctx, emptyToken, "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab SSHKeyExists empty token error = %v", err)
+	}
+	if err := gitlabAdapter.UploadSSHKey(ctx, emptyToken, "title", "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab UploadSSHKey empty token error = %v", err)
+	}
+	if _, err := gitlabAdapter.DeleteSSHKey(ctx, emptyToken, "ssh-ed25519 AAAA"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab DeleteSSHKey empty token error = %v", err)
+	}
+	if _, err := gitlabAdapter.GPGKeyExists(ctx, emptyToken, "ABC123"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab GPGKeyExists empty token error = %v", err)
+	}
+	if err := gitlabAdapter.UploadGPGKey(ctx, emptyToken, "armored"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab UploadGPGKey empty token error = %v", err)
+	}
+	if _, err := gitlabAdapter.DeleteGPGKey(ctx, emptyToken, "ABC123"); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("GitLab DeleteGPGKey empty token error = %v", err)
+	}
+	if _, err := (gitLabAdapter{}).clientWithToken(providerpkg.TokenSet{AccessToken: "token"}); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("GitLab nil client error = %v", err)
+	}
+
+	_ = gitlabDef
+}
+
+type stubAdapter struct {
+	verifyToken string
+	sshToken    string
+}
+
+func (s *stubAdapter) VerifyPAT(_ context.Context, token string) (AuthenticatedUser, error) {
+	s.verifyToken = token
+	return AuthenticatedUser{Username: "bitbucket-user", Name: "Bitbucket User"}, nil
+}
+
+func (s *stubAdapter) SSHKeyExists(_ context.Context, token providerpkg.TokenSet, _ string) (bool, error) {
+	s.sshToken = token.AccessToken
+	return true, nil
+}
+
+func (s *stubAdapter) UploadSSHKey(context.Context, providerpkg.TokenSet, string, string) error {
+	return nil
+}
+
+func (s *stubAdapter) DeleteSSHKey(context.Context, providerpkg.TokenSet, string) (bool, error) {
+	return true, nil
+}
+
+func (s *stubAdapter) GPGKeyExists(context.Context, providerpkg.TokenSet, string) (bool, error) {
+	return true, nil
+}
+
+func (s *stubAdapter) UploadGPGKey(context.Context, providerpkg.TokenSet, string) error {
+	return nil
+}
+
+func (s *stubAdapter) DeleteGPGKey(context.Context, providerpkg.TokenSet, string) (bool, error) {
+	return true, nil
 }

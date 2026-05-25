@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"git-config-manager/pkg/ui"
-	"git-config-manager/pkg/version"
+	"github.com/sijunda/git-config-manager/pkg/ui"
+	"github.com/sijunda/git-config-manager/pkg/version"
 
 	"github.com/spf13/cobra"
 )

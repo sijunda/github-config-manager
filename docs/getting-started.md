@@ -30,7 +30,7 @@ This verifies that Git, SSH, and GPG are properly installed and checks your shel
 gcm init
 ```
 
-GCM auto-detects your shell and installs hooks for auto-switching and prompt indicators. It also registers GCM's built-in credential helper for `github.com`, which serves tokens from GCM's encrypted store — making git auth immune to VS Code logout or external credential changes. **Restart your shell** after running this (or `source ~/.zshrc`, etc.).
+GCM auto-detects your shell and installs hooks for auto-switching and prompt indicators. It also registers GCM's built-in credential helper for configured provider hosts, which serves tokens from GCM's encrypted store — making git auth immune to VS Code logout or external credential changes. **Restart your shell** after running this (or `source ~/.zshrc`, etc.).
 
 See [Shell Integration](shell-integration.md) for details.
 

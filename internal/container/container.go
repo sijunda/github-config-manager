@@ -2,22 +2,22 @@
 package container
 
 import (
-	"git-config-manager/internal/audit"
-	"git-config-manager/internal/backup"
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/github"
-	"git-config-manager/internal/gitlab"
-	"git-config-manager/internal/gpg"
-	"git-config-manager/internal/profile"
-	providerpkg "git-config-manager/internal/provider"
-	"git-config-manager/internal/providerclient"
-	cryptoSvc "git-config-manager/internal/service/crypto"
-	fileSvc "git-config-manager/internal/service/file"
-	"git-config-manager/internal/shell"
-	"git-config-manager/internal/ssh"
-	"git-config-manager/internal/template"
-	"git-config-manager/internal/tokenstore"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/audit"
+	"github.com/sijunda/git-config-manager/internal/backup"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/github"
+	"github.com/sijunda/git-config-manager/internal/gitlab"
+	"github.com/sijunda/git-config-manager/internal/gpg"
+	"github.com/sijunda/git-config-manager/internal/profile"
+	providerpkg "github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/internal/providerclient"
+	cryptoSvc "github.com/sijunda/git-config-manager/internal/service/crypto"
+	fileSvc "github.com/sijunda/git-config-manager/internal/service/file"
+	"github.com/sijunda/git-config-manager/internal/shell"
+	"github.com/sijunda/git-config-manager/internal/ssh"
+	"github.com/sijunda/git-config-manager/internal/template"
+	"github.com/sijunda/git-config-manager/internal/tokenstore"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 // Container holds all application dependencies.

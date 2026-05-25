@@ -21,7 +21,7 @@ GCM integrates with your shell to provide **auto-switching** when you `cd` into 
 gcm init
 ```
 
-GCM auto-detects your shell from the `SHELL` environment variable (or `PSModulePath` on Windows) and appends a marked block to your config file. It also registers GCM's built-in credential helper for `github.com`, which serves tokens from GCM's encrypted store instead of the system keychain.
+GCM auto-detects your shell from the `SHELL` environment variable (or `PSModulePath` on Windows) and appends a marked block to your config file. It also registers GCM's built-in credential helper for configured provider hosts, which serves tokens from GCM's encrypted store instead of the system keychain.
 
 After running `gcm init`, **restart your shell** for the hooks to take effect:
 
@@ -54,6 +54,8 @@ Set SHELL environment variable and retry: SHELL=/bin/zsh gcm init
 ```
 
 The hook code provides two features:
+
+`gcm init` also registers GCM as the git credential helper for configured provider hosts. It does not clear global git identity values unless you pass `--clear-global-identity`.
 
 ### 1. Auto-Switching
 

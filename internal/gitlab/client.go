@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/provider"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/provider"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 const maxResponseSize = 5 << 20 // 5 MiB
@@ -39,6 +39,15 @@ func NewClient(cfg config.ProviderConfig, log *logger.Logger) *Client {
 		apiURL:     apiURL,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
+}
+
+// WithTokenSet returns a shallow client clone configured with the provided token.
+// It lets callers perform token-scoped operations without mutating a shared
+// client instance.
+func (c *Client) WithTokenSet(token provider.TokenSet) *Client {
+	clone := *c
+	clone.token = token
+	return &clone
 }
 
 // User represents a GitLab user.

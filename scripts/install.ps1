@@ -4,6 +4,8 @@
 param(
     [switch]$Quiet,
     [string]$Version,
+    [switch]$AddToPath,
+    [switch]$Init,
     [switch]$Help
 )
 
@@ -110,12 +112,76 @@ function Show-Help {
     Write-Host "Options:"
     Write-Host "  -Quiet          Run in quiet mode (minimal output)"
     Write-Host "  -Version VER    Install specific version (e.g., v1.0.0)"
+    Write-Host "  -AddToPath      Add the install directory to the user PATH"
+    Write-Host "  -Init           Run 'gcm init' after install (mutates shell/git config)"
     Write-Host "  -Help           Show this help message"
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\install.ps1                   # Install latest version"
     Write-Host "  .\install.ps1 -Quiet            # Install quietly"
     Write-Host "  .\install.ps1 -Version v1.0.0   # Install specific version"
+    Write-Host "  .\install.ps1 -AddToPath        # Install and update PATH explicitly"
+    Write-Host "  .\install.ps1 -Init             # Install and explicitly initialize GCM"
+}
+
+function Get-ArtifactVersion {
+    param([string]$ReleaseVersion)
+    if ($ReleaseVersion.StartsWith("v")) {
+        return $ReleaseVersion.Substring(1)
+    }
+    return $ReleaseVersion
+}
+
+function Get-ReleaseAssetName {
+    param(
+        [string]$ReleaseVersion,
+        [string]$Platform
+    )
+
+    $parts = $Platform -split "/"
+    $os = $parts[0]
+    $arch = $parts[1]
+    $artifactVersion = Get-ArtifactVersion $ReleaseVersion
+    $extension = if ($os -eq "windows") { "zip" } else { "tar.gz" }
+    return "gcm_${artifactVersion}_${os}_${arch}.${extension}"
+}
+
+function Save-Url {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -TimeoutSec 120 -UseBasicParsing
+}
+
+function Test-ReleaseChecksum {
+    param(
+        [string]$ArchivePath,
+        [string]$ChecksumsPath
+    )
+
+    $fileName = Split-Path $ArchivePath -Leaf
+    $entry = Get-Content $ChecksumsPath | Where-Object {
+        $parts = $_ -split "\s+"
+        $parts.Count -ge 2 -and $parts[1] -eq $fileName
+    } | Select-Object -First 1
+
+    if (-not $entry) {
+        Print-Error "No checksum entry found for $fileName"
+        return $false
+    }
+
+    $expected = ($entry -split "\s+")[0].ToLowerInvariant()
+    $actual = (Get-FileHash -Algorithm SHA256 -Path $ArchivePath).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        Print-Error "Checksum mismatch for $fileName"
+        Print-Error "Expected: $expected"
+        Print-Error "Actual:   $actual"
+        return $false
+    }
+
+    Print-Success "Checksum verified for $fileName"
+    return $true
 }
 
 # Detect platform (Windows architecture)
@@ -177,7 +243,7 @@ function Test-Binary {
 # ASCII spinner characters (compatible with all terminals)
 $SpinChars = @('|', '/', '-', '\\')
 
-# Download the binary
+# Download, checksum-verify, and extract the release archive.
 function Download-Binary {
     param(
         [string]$DownloadVersion,
@@ -185,65 +251,87 @@ function Download-Binary {
         [string]$InstallDir
     )
 
-    $parts = $Platform -split "/"
-    $os = $parts[0]
-    $arch = $parts[1]
-
-    # Construct download URL
-    $downloadUrl = "https://github.com/sijunda/git-config-manager/releases/download/$DownloadVersion/gcm-$os-$arch.exe"
+    $assetName = Get-ReleaseAssetName $DownloadVersion $Platform
+    $baseUrl = "https://github.com/sijunda/git-config-manager/releases/download/$DownloadVersion"
+    $archiveUrl = "$baseUrl/$assetName"
+    $checksumsUrl = "$baseUrl/checksums.txt"
     $binaryPath = Join-Path $InstallDir "gcm.exe"
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "gcm-install-$([System.Guid]::NewGuid().ToString('N'))"
+    $archivePath = Join-Path $tempDir $assetName
+    $checksumsPath = Join-Path $tempDir "checksums.txt"
+    $extractDir = Join-Path $tempDir "extract"
 
     Print-Step "Downloading gcm $DownloadVersion for $Platform..."
-    Print-Info "Download URL: $downloadUrl"
+    Print-Info "Archive URL: $archiveUrl"
+    Print-Info "Checksums URL: $checksumsUrl"
 
-    # Create install directory
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
 
-    # Download binary with real progress indicator
     if (-not $Quiet) {
-        Write-Host "   $($Colors.Dim)Downloading...$($Colors.Reset)"
-        # Use default ProgressPreference which shows a progress bar in PowerShell
+        Write-Host "   $($Colors.Dim)Downloading release archive...$($Colors.Reset)"
         $ProgressPreference = 'Continue'
     } else {
         $ProgressPreference = 'SilentlyContinue'
     }
 
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -TimeoutSec 120
+        Save-Url $archiveUrl $archivePath
+        Save-Url $checksumsUrl $checksumsPath
     }
     catch {
         if (-not $Quiet) {
             Write-Host "   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) Download failed."
         }
-        Print-Error "Failed to download gcm binary"
+        Print-Error "Failed to download gcm release archive or checksums"
         Print-Info "Error: $($_.Exception.Message)"
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         exit 1
     }
 
     if (-not $Quiet) {
-        Write-Host "   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded gcm binary successfully."
+        Write-Host "   $($Colors.Green)$($Icons.Checkmark)$($Colors.Reset) Downloaded release archive and checksums."
     }
 
-    # Check if download was successful
-    if (-not (Test-Path $binaryPath)) {
-        Print-Error "Failed to download gcm binary"
+    if (-not (Test-ReleaseChecksum $archivePath $checksumsPath)) {
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         exit 1
     }
 
-    # Validate the downloaded binary
+    try {
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
+    }
+    catch {
+        Print-Error "Failed to extract release archive"
+        Print-Info "Error: $($_.Exception.Message)"
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    $extractedBinary = Get-ChildItem -Path $extractDir -Recurse -File -Filter "gcm.exe" | Select-Object -First 1
+    if (-not $extractedBinary) {
+        Print-Error "Release archive did not contain gcm.exe"
+        Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
+
+    Copy-Item -LiteralPath $extractedBinary.FullName -Destination $binaryPath -Force
+    Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+
     if (-not (Test-Binary $binaryPath)) {
         Print-Error "Binary validation failed"
         Remove-Item $binaryPath -Force -ErrorAction SilentlyContinue
         exit 1
     }
 
-    Print-Success "Downloaded gcm binary to $binaryPath"
+    Print-Success "Installed verified gcm binary to $binaryPath"
     return $binaryPath
 }
 
-# Add to PATH and initialize environment
+# Add to PATH only when explicitly requested.
 function Add-ToPath {
     param([string]$InstallDir)
 
@@ -256,11 +344,13 @@ function Add-ToPath {
 
     Print-Step "Configuring Windows environment..."
 
-    # Get current user PATH
     $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $pathEntries = @()
+    if ($userPath) {
+        $pathEntries = $userPath -split ";" | Where-Object { $_ }
+    }
 
-    # Check if install directory is already in PATH
-    if ($userPath -notlike "*$InstallDir*") {
+    if ($pathEntries -notcontains $InstallDir) {
         $newPath = if ($userPath) { "$userPath;$InstallDir" } else { $InstallDir }
         [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
         Print-Success "Added $InstallDir to user PATH"
@@ -268,10 +358,22 @@ function Add-ToPath {
         Print-Info "Install directory already in PATH"
     }
 
-    # Also update current session PATH
     $env:PATH = "$InstallDir;$env:PATH"
+}
 
-    # Run gcm init
+# Run gcm init only when explicitly requested.
+function Run-Init {
+    param([string]$InstallDir)
+
+    $gcmBinary = Join-Path $InstallDir "gcm.exe"
+
+    if (-not (Test-Path $gcmBinary)) {
+        Print-Error "gcm binary not found at $gcmBinary"
+        exit 1
+    }
+
+    Print-Step "Initializing GCM by explicit request..."
+
     if (-not $Quiet) {
         Write-Host -NoNewline "   $($Colors.Dim)Configuring shell integration... $($Colors.Purple)$($SpinChars[0])$($Colors.Reset) "
     }
@@ -295,9 +397,11 @@ function Add-ToPath {
     }
     catch {
         if (-not $Quiet) {
-            Write-Host "`r   $($Colors.Yellow)$($Icons.Warning)$($Colors.Reset) Shell integration skipped.      "
+            Write-Host "`r   $($Colors.Red)$($Icons.Crossmark)$($Colors.Reset) Shell integration failed.      "
         }
-        Print-Warning "Could not run 'gcm init'. Please run it manually after installation."
+        Print-Error "Could not run 'gcm init'. No fallback shell mutation was applied."
+        Print-Info "Error: $($_.Exception.Message)"
+        exit 1
     }
 }
 
@@ -329,7 +433,11 @@ function Show-SystemInfo {
 
 # Show completion message
 function Show-Completion {
-    param([string]$CompletionVersion)
+    param(
+        [string]$CompletionVersion,
+        [bool]$PathUpdated,
+        [bool]$Initialized
+    )
 
     Write-Host ""
     Print-Separator "═"
@@ -339,13 +447,18 @@ function Show-Completion {
     Print-Separator "┄"
     Write-Host "$($Colors.Bold)$($Colors.White)What was installed:$($Colors.Reset)"
     Write-Host " • gcm binary"
-    Write-Host " • Windows PATH configuration"
-    Write-Host " • Shell integration"
+    Write-Host " • Release checksum verification"
+    if ($PathUpdated) {
+        Write-Host " • Windows PATH configuration"
+    }
+    if ($Initialized) {
+        Write-Host " • Shell integration"
+    }
     Print-Separator "┄"
     Write-Host "$($Colors.Bold)$($Colors.White)Next Steps:$($Colors.Reset)"
     Write-Host " 1. Restart your PowerShell/Command Prompt"
     Write-Host " 2. Verify with 'gcm version'"
-    Write-Host " 3. Initialize with 'gcm init'"
+    Write-Host " 3. Initialize with 'gcm init' when you want shell hooks"
     Write-Host " 4. Create your first profile with 'gcm profile create <name>'"
     Print-Separator "┄"
     Write-Host "$($Colors.Bold)$($Colors.White)Quick Commands:$($Colors.Reset)"
@@ -483,9 +596,21 @@ function Main {
     $binaryPath = Download-Binary $latestVersion $platform $installDir
     Write-Host ""
 
-    # Add to PATH
-    Add-ToPath $installDir
-    Write-Host ""
+    if ($AddToPath) {
+        Add-ToPath $installDir
+        Write-Host ""
+    } else {
+        Print-Info "User PATH was not modified. To opt in, rerun with -AddToPath or add this manually: $installDir"
+        Write-Host ""
+    }
+
+    if ($Init) {
+        Run-Init $installDir
+        Write-Host ""
+    } else {
+        Print-Info "GCM initialization was not run. Run 'gcm init' when you are ready to install shell hooks."
+        Write-Host ""
+    }
 
     # Verify installation
     Print-Step "Verifying installation..."
@@ -493,7 +618,7 @@ function Main {
         $null = & $binaryPath version 2>$null
         $installedVersion = & $binaryPath version 2>$null | Select-Object -First 1
         Print-Success "Installation verified: $($Colors.Bold)$installedVersion$($Colors.Reset)"
-        Show-Completion $latestVersion
+        Show-Completion $latestVersion $AddToPath.IsPresent $Init.IsPresent
     }
     catch {
         Print-Warning "Installation completed, but verification failed"

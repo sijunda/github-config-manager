@@ -101,6 +101,9 @@ func TestLoad_DefaultsWhenNoFile(t *testing.T) {
 	if cfg.Advanced.GitCommand != "git" {
 		t.Errorf("GitCommand = %q, want %q", cfg.Advanced.GitCommand, "git")
 	}
+	if cfg.AutoSwitch.DetectionStrategy != "project_file" {
+		t.Errorf("DetectionStrategy = %q, want %q", cfg.AutoSwitch.DetectionStrategy, "project_file")
+	}
 }
 
 func TestLoad_InvalidYAML(t *testing.T) {
@@ -347,6 +350,9 @@ func TestDefaultConfig_SecurityDefaults(t *testing.T) {
 	if cfg.Security.MasterPassword {
 		t.Error("expected MasterPassword=false")
 	}
+	if cfg.Security.AllowPlaintextTokens {
+		t.Error("expected AllowPlaintextTokens=false")
+	}
 }
 
 func TestDefaultConfig_BackupDefaults(t *testing.T) {
@@ -354,11 +360,20 @@ func TestDefaultConfig_BackupDefaults(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	cfg := DefaultConfig()
+	if cfg.Backup.AutoBackup {
+		t.Error("expected AutoBackup=false")
+	}
 	if cfg.Backup.RetentionDays != 30 {
 		t.Errorf("RetentionDays = %d", cfg.Backup.RetentionDays)
 	}
 	if cfg.Backup.MaxBackups != 10 {
 		t.Errorf("MaxBackups = %d", cfg.Backup.MaxBackups)
+	}
+	if cfg.Backup.Encryption {
+		t.Error("expected Backup.Encryption=false")
+	}
+	if cfg.Backup.IncludeKeys {
+		t.Error("expected IncludeKeys=false")
 	}
 }
 

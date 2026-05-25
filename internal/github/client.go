@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"git-config-manager/internal/config"
-	"git-config-manager/internal/tokenstore"
-	"git-config-manager/pkg/logger"
+	"github.com/sijunda/git-config-manager/internal/config"
+	"github.com/sijunda/git-config-manager/internal/tokenstore"
+	"github.com/sijunda/git-config-manager/pkg/logger"
 )
 
 // maxResponseSize caps how much data we read from GitHub API responses to
@@ -55,6 +55,15 @@ func NewClient(cfg *config.Config, log *logger.Logger, tokenStore *tokenstore.To
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 		tokenStore: tokenStore,
 	}
+}
+
+// WithToken returns a shallow client clone configured with the provided token.
+// It lets callers perform token-scoped operations without mutating a shared
+// client instance.
+func (c *Client) WithToken(token string) *Client {
+	clone := *c
+	clone.token = token
+	return &clone
 }
 
 // User represents a GitHub user.
