@@ -100,11 +100,17 @@ Examples:
 			}
 			sp.Stop("Token verified!")
 
-			setProfileProviderAccount(profileConfig, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
-			if err := saveProviderToken(profileName, def, profileConfig, tokenSet); err != nil {
+			ok, transitionErr := applyProfileProviderTransition(cmd.Context(), profileName, profileConfig, def, user.Username, providerpkg.AuthMethodPAT, !stdinPiped, func() error {
+				return saveProviderToken(profileName, def, profileConfig, tokenSet)
+			})
+			if transitionErr != nil {
 				ctr.AuditLogger.Log(audit.ActionProviderLogin, profileName,
-					map[string]string{"provider": string(providerpkg.GitLabID), "method": "pat"}, err)
-				return fmt.Errorf("could not save the GitLab token securely\n\n  This might be a file permission issue. Run: gcm doctor")
+					map[string]string{"provider": string(providerpkg.GitLabID), "method": "pat"}, transitionErr)
+				return transitionErr
+			}
+			if !ok {
+				ui.Info("Provider change cancelled")
+				return nil
 			}
 
 			if err := ctr.ProfileManager.Update(profileConfig); err != nil {

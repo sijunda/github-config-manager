@@ -79,12 +79,16 @@ Examples:
 			profileName := args[0]
 
 			// Verify profile exists first
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				return fmt.Errorf("profile %q not found\n\n  To see available profiles: gcm profile list\n  To create a new profile:   gcm profile create %s -i", profileName, profileName)
+			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
 			}
 
 			var token string
-			var err error
 
 			// Check if --stdin flag or pipe input
 			stdinPiped := isStdinPiped()
@@ -135,11 +139,19 @@ Examples:
 			}
 			sp.Stop("Token verified!")
 
-			// Save token
-			if err := ctr.GitHubClient.SaveToken(profileName, token); err != nil {
-				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, err)
-				return fmt.Errorf("could not save the token securely\n\n  This might be a file permission issue.\n  Run: gcm doctor")
+			tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodPAT, TokenType: "pat"}
+			ok, transitionErr := applyProfileProviderTransition(cmd.Context(), profileName, p, def, user.Login, providerpkg.AuthMethodPAT, !stdinPiped, func() error {
+				return saveProviderToken(profileName, def, p, tokenSet)
+			})
+			if transitionErr != nil {
+				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, transitionErr)
+				return transitionErr
 			}
+			if !ok {
+				ui.Info("Provider change cancelled")
+				return nil
+			}
+			_ = ctr.GitHubClient.SaveToken(profileName, token)
 
 			ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName,
 				map[string]string{"user": user.Login, "method": "pat"}, nil)
@@ -152,9 +164,7 @@ Examples:
 
 			// Only update git credentials if this is the active profile
 			if isActiveProfile(profileName) {
-				server := gitServer()
-				_ = ctr.GitHubClient.StoreGitCredentials(server, user.Login, token)
-				_ = ctr.GitHubClient.SetGitCredentialUsername(server, user.Login)
+				configureGitCredentialsForProvider(profileName, p, def, tokenSet)
 				ui.Print("  Git credentials updated — git push/pull will use this account.")
 			} else {
 				ui.Blank()
@@ -163,12 +173,7 @@ Examples:
 				ui.Print("    gcm use %s", profileName)
 			}
 
-			// Update profile
-			p, _ := ctr.ProfileManager.Get(profileName)
-			if p != nil {
-				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodPAT)
-				_ = ctr.ProfileManager.Update(p)
-			}
+			_ = ctr.ProfileManager.Update(p)
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
@@ -393,8 +398,13 @@ Examples:
 			profileName := args[0]
 
 			// Verify profile exists first
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				return fmt.Errorf("profile %q not found\n\n  To see available profiles: gcm profile list\n  To create a new profile:   gcm profile create %s -i", profileName, profileName)
+			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
 			}
 
 			ui.Header("%s GitHub OAuth Login for Profile: %s", ui.IconGlobe, profileName)
@@ -447,20 +457,29 @@ Examples:
 
 			sp2.Stop("Authorization successful!")
 
-			if err := ctr.GitHubClient.SaveToken(profileName, token); err != nil {
-				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, err)
-				return fmt.Errorf("could not save the token securely\n\n  This might be a file permission issue.\n  Run: gcm doctor")
-			}
-
 			ctr.GitHubClient.SetToken(token)
 			user, err := ctr.GitHubClient.GetUser(cmd.Context())
 			if err != nil {
 				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, nil)
 				ui.Blank()
-				ui.Warning("Token saved, but could not verify your GitHub username.")
+				ui.Warning("Could not verify your GitHub username, so the token was not saved.")
 				ui.Print("  This is usually temporary. Verify later with: gcm github verify %s", profileName)
 				return nil
 			}
+
+			tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodOAuthDevice, TokenType: "bearer"}
+			ok, transitionErr := applyProfileProviderTransition(cmd.Context(), profileName, p, def, user.Login, providerpkg.AuthMethodOAuthDevice, true, func() error {
+				return saveProviderToken(profileName, def, p, tokenSet)
+			})
+			if transitionErr != nil {
+				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, transitionErr)
+				return transitionErr
+			}
+			if !ok {
+				ui.Info("Provider change cancelled")
+				return nil
+			}
+			_ = ctr.GitHubClient.SaveToken(profileName, token)
 
 			ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName,
 				map[string]string{"user": user.Login, "method": "oauth"}, nil)
@@ -474,9 +493,7 @@ Examples:
 
 			// Only update git credentials if this is the active profile
 			if isActiveProfile(profileName) {
-				server := gitServer()
-				_ = ctr.GitHubClient.StoreGitCredentials(server, user.Login, token)
-				_ = ctr.GitHubClient.SetGitCredentialUsername(server, user.Login)
+				configureGitCredentialsForProvider(profileName, p, def, tokenSet)
 				ui.Print("  Git credentials updated — git push/pull will use this account.")
 			} else {
 				ui.Blank()
@@ -485,20 +502,12 @@ Examples:
 				ui.Print("    gcm use %s", profileName)
 			}
 
-			p, _ := ctr.ProfileManager.Get(profileName)
-			if p != nil {
-				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodOAuthDevice)
-				_ = ctr.ProfileManager.Update(p)
-			}
+			_ = ctr.ProfileManager.Update(p)
 
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)
 
-			if p != nil {
-				if def, ok := ctr.ProviderRegistry.Get(providerpkg.GitHubID); ok {
-					setupUploadKeysForProvider(cmd.Context(), profileName, p, def)
-				}
-			}
+			setupUploadKeysForProvider(cmd.Context(), profileName, p, def)
 
 			return nil
 		},
@@ -525,8 +534,13 @@ Examples:
 			profileName := args[0]
 
 			// Verify profile exists first
-			if _, err := ctr.ProfileManager.Get(profileName); err != nil {
+			p, err := ctr.ProfileManager.Get(profileName)
+			if err != nil {
 				return fmt.Errorf("profile %q not found\n\n  To see available profiles: gcm profile list\n  To create a new profile:   gcm profile create %s -i", profileName, profileName)
+			}
+			def, err := githubProviderDefinition()
+			if err != nil {
+				return err
 			}
 
 			sp := ui.NewSpinner("Reading token from GitHub CLI...")
@@ -574,10 +588,19 @@ Examples:
 			}
 			sp2.Stop("Token verified!")
 
-			if err := ctr.GitHubClient.SaveToken(profileName, token); err != nil {
-				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, err)
-				return fmt.Errorf("could not save the token securely\n\n  This might be a file permission issue.\n  Run: gcm doctor")
+			tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodLegacy, TokenType: "pat"}
+			ok, transitionErr := applyProfileProviderTransition(cmd.Context(), profileName, p, def, user.Login, providerpkg.AuthMethodLegacy, true, func() error {
+				return saveProviderToken(profileName, def, p, tokenSet)
+			})
+			if transitionErr != nil {
+				ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName, nil, transitionErr)
+				return transitionErr
 			}
+			if !ok {
+				ui.Info("Provider change cancelled")
+				return nil
+			}
+			_ = ctr.GitHubClient.SaveToken(profileName, token)
 
 			ctr.AuditLogger.Log(audit.ActionGitHubLogin, profileName,
 				map[string]string{"user": user.Login, "method": "gh-cli"}, nil)
@@ -590,9 +613,7 @@ Examples:
 
 			// Only update git credentials if this is the active profile
 			if isActiveProfile(profileName) {
-				server := gitServer()
-				_ = ctr.GitHubClient.StoreGitCredentials(server, user.Login, token)
-				_ = ctr.GitHubClient.SetGitCredentialUsername(server, user.Login)
+				configureGitCredentialsForProvider(profileName, p, def, tokenSet)
 				ui.Print("  Git credentials updated — git push/pull will use this account.")
 			} else {
 				ui.Blank()
@@ -601,11 +622,7 @@ Examples:
 				ui.Print("    gcm use %s", profileName)
 			}
 
-			p, _ := ctr.ProfileManager.Get(profileName)
-			if p != nil {
-				setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodLegacy)
-				_ = ctr.ProfileManager.Update(p)
-			}
+			_ = ctr.ProfileManager.Update(p)
 
 			// Auto-activate globally if this is the first authenticated profile
 			activateAsGlobalIfFirst(profileName)

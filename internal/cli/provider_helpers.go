@@ -47,6 +47,162 @@ func setProfileProviderAccount(p *profile.Profile, id providerpkg.ProviderID, us
 	}
 }
 
+func applyProfileProviderTransition(ctx context.Context, profileName string, p *profile.Profile, def providerpkg.Definition, username, authMethod string, allowPrompt bool, afterSet func() error) (bool, error) {
+	if p == nil {
+		return true, nil
+	}
+
+	oldState := cloneProfileProviderState(p)
+	cleanupDefs := providerDefinitionsToClean(oldState, def.ID)
+	if len(cleanupDefs) > 0 {
+		if !allowPrompt {
+			return false, fmt.Errorf("profile %q is already configured for %s; change provider interactively first: gcm profile edit %s -i", profileName, providerNames(cleanupDefs), profileName)
+		}
+		if ok, err := confirmProviderTransition(profileName, cleanupDefs, def); err != nil || !ok {
+			return false, err
+		}
+	}
+
+	setProfileProviderAccount(p, def.ID, username, authMethod)
+	if afterSet != nil {
+		if err := afterSet(); err != nil {
+			restoreProfileProviderState(p, oldState)
+			return false, err
+		}
+	}
+
+	cleanupProviderData(ctx, profileName, oldState, cleanupDefs)
+	if migrated, err := migrateProfileSSHKeyPathToProvider(profileName, p); err != nil {
+		ui.Warning("Could not rename SSH key to provider format: %v", err)
+	} else if migrated {
+		ui.Detail("SSH Key Renamed", p.SSH.KeyPath)
+	}
+
+	return true, nil
+}
+
+func confirmProviderTransition(profileName string, oldDefs []providerpkg.Definition, newDef providerpkg.Definition) (bool, error) {
+	ui.Warning("Changing provider for profile %q: %s → %s", profileName, providerNames(oldDefs), newDef.DisplayName)
+	ui.Print("  GCM will clean old provider data before this profile uses %s:", newDef.DisplayName)
+	ui.Print("  - stored provider token(s)")
+	ui.Print("  - cached git credentials and credential username")
+	ui.Print("  - uploaded SSH/GPG keys on the old provider when the old token can access them")
+	ui.Print("  - local SSH key filename will be renamed to the new provider format")
+	return ui.AskConfirm("Continue and clean old provider data?", false)
+}
+
+func providerDefinitionsToClean(p *profile.Profile, keep providerpkg.ProviderID) []providerpkg.Definition {
+	if p == nil || ctr == nil || ctr.ProviderRegistry == nil {
+		return nil
+	}
+	seen := make(map[providerpkg.ProviderID]bool)
+	var defs []providerpkg.Definition
+	add := func(id providerpkg.ProviderID) {
+		if id == "" || id == keep || seen[id] {
+			return
+		}
+		def, ok := ctr.ProviderRegistry.Get(id)
+		if !ok || !def.Capabilities.Has(providerpkg.CapabilityCredentialHelper) {
+			return
+		}
+		seen[id] = true
+		defs = append(defs, def)
+	}
+	for id := range p.Providers {
+		add(providerpkg.ProviderID(id))
+	}
+	if p.GitHub != nil {
+		add(providerpkg.GitHubID)
+	}
+	return defs
+}
+
+func cleanupProviderData(ctx context.Context, profileName string, p *profile.Profile, defs []providerpkg.Definition) {
+	if p == nil || len(defs) == 0 {
+		return
+	}
+
+	var sshPubKey string
+	if p.SSH != nil && p.SSH.KeyPath != "" {
+		sshPubKey, _ = ctr.SSHManager.GetPublicKey(p.SSH.KeyPath)
+	}
+
+	for _, def := range defs {
+		token, tokenErr := loadProviderToken(profileName, def, p)
+		if tokenErr == nil && token.AccessToken != "" {
+			if setErr := setProviderToken(def, token); setErr == nil {
+				if sshPubKey != "" && def.Capabilities.Has(providerpkg.CapabilitySSHKeys) {
+					if deleted, delErr := deleteProviderSSHKey(ctx, def, sshPubKey); delErr != nil {
+						ui.Warning("Could not delete SSH key from %s: %v", def.DisplayName, delErr)
+					} else if deleted {
+						ui.Success("SSH key removed from %s", def.DisplayName)
+					}
+				}
+				if p.GPG != nil && p.GPG.KeyID != "" && def.Capabilities.Has(providerpkg.CapabilityGPGKeys) {
+					if deleted, delErr := deleteProviderGPGKey(ctx, def, p.GPG.KeyID); delErr != nil {
+						ui.Warning("Could not delete GPG key from %s: %v", def.DisplayName, delErr)
+					} else if deleted {
+						ui.Success("GPG key removed from %s", def.DisplayName)
+					}
+				}
+			}
+		}
+
+		removedToken := false
+		if delErr := deleteProviderToken(profileName, def, p); delErr == nil {
+			removedToken = true
+		}
+		if def.ID == providerpkg.GitHubID {
+			if delErr := ctr.GitHubClient.DeleteToken(profileName); delErr == nil {
+				removedToken = true
+			}
+		}
+		if removedToken {
+			ui.Success("%s token removed", def.DisplayName)
+		}
+
+		_ = ctr.GitHubClient.ClearGitCredentials(def.CredentialServer())
+		_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "")
+	}
+}
+
+func cloneProfileProviderState(p *profile.Profile) *profile.Profile {
+	if p == nil {
+		return nil
+	}
+	clone := *p
+	if p.Providers != nil {
+		clone.Providers = make(map[string]profile.ProviderAccountConfig, len(p.Providers))
+		for id, account := range p.Providers {
+			clone.Providers[id] = account
+		}
+	}
+	if p.GitHub != nil {
+		githubConfig := *p.GitHub
+		clone.GitHub = &githubConfig
+	}
+	return &clone
+}
+
+func restoreProfileProviderState(p *profile.Profile, snapshot *profile.Profile) {
+	if p == nil || snapshot == nil {
+		return
+	}
+	p.Providers = snapshot.Providers
+	p.GitHub = snapshot.GitHub
+}
+
+func providerNames(defs []providerpkg.Definition) string {
+	names := make([]string, 0, len(defs))
+	for _, def := range defs {
+		names = append(names, def.DisplayName)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
+}
+
 func profileProviderID(p *profile.Profile) (providerpkg.ProviderID, bool) {
 	if p == nil {
 		return "", false
@@ -484,9 +640,6 @@ func migrateProfileSSHKeyPathToProvider(profileName string, p *profile.Profile) 
 	}
 
 	targetProfileName := sshKeyProfileName(profileName, p)
-	if targetProfileName == profileName {
-		return false, nil
-	}
 
 	keyType := string(p.SSH.KeyType)
 	if keyType == "" {
@@ -497,12 +650,18 @@ func migrateProfileSSHKeyPathToProvider(profileName string, p *profile.Profile) 
 	}
 
 	currentPriv := p.SSH.KeyPath
+	currentName := filepath.Base(currentPriv)
 	legacyName := fmt.Sprintf("id_%s_%s", keyType, profileName)
-	if filepath.Base(currentPriv) != legacyName {
+	legacyProviderPrefix := legacyName + "_"
+	targetName := fmt.Sprintf("id_%s_%s", keyType, targetProfileName)
+	if currentName == targetName {
+		return false, nil
+	}
+	if currentName != legacyName && !strings.HasPrefix(currentName, legacyProviderPrefix) {
 		return false, nil
 	}
 
-	targetPriv := filepath.Join(filepath.Dir(currentPriv), fmt.Sprintf("id_%s_%s", keyType, targetProfileName))
+	targetPriv := filepath.Join(filepath.Dir(currentPriv), targetName)
 	if targetPriv == currentPriv {
 		return false, nil
 	}

@@ -762,7 +762,27 @@ func promptProviderAccountUsernames(p *profile.Profile) error {
 		return err
 	}
 	if choice == "Skip provider account" {
+		oldState := cloneProfileProviderState(p)
+		cleanupDefs := providerDefinitionsToClean(oldState, "")
+		if len(cleanupDefs) > 0 {
+			ui.Warning("Removing provider from profile %q: %s", p.Name, providerNames(cleanupDefs))
+			ui.Print("  GCM will remove stored tokens, cached credentials, and uploaded keys when possible.")
+			confirm, confirmErr := ui.AskConfirm("Continue and remove provider data?", false)
+			if confirmErr != nil {
+				return confirmErr
+			}
+			if !confirm {
+				ui.Info("Provider removal cancelled")
+				return nil
+			}
+			cleanupProviderData(context.Background(), p.Name, oldState, cleanupDefs)
+		}
 		clearAllProfileProviderAccounts(p)
+		if migrated, migErr := migrateProfileSSHKeyPathToProvider(p.Name, p); migErr != nil {
+			ui.Warning("Could not rename SSH key after provider removal: %v", migErr)
+		} else if migrated {
+			ui.Detail("SSH Key Renamed", p.SSH.KeyPath)
+		}
 		return nil
 	}
 
@@ -776,7 +796,11 @@ func promptProviderAccountUsernames(p *profile.Profile) error {
 	if err != nil {
 		return err
 	}
-	setProfileProviderAccount(p, def.ID, username, account.AuthMethod)
+	if ok, err := applyProfileProviderTransition(context.Background(), p.Name, p, def, username, account.AuthMethod, true, nil); err != nil {
+		return err
+	} else if !ok {
+		ui.Info("Provider change cancelled")
+	}
 	return nil
 }
 

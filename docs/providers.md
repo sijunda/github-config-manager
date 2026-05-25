@@ -76,6 +76,8 @@ providers:
 
 Profiles keep provider-specific account metadata under `providers`. A profile must contain at most one provider entry.
 
+Changing the provider for an existing profile is a destructive transition. GCM asks for confirmation, then removes old provider tokens, cached git credentials, credential username settings, and uploaded SSH/GPG keys when the old token can still access them. Local SSH key filenames are migrated to the new provider suffix so local and remote names stay consistent.
+
 ```yaml
 name: work-github
 git:

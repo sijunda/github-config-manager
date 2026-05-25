@@ -391,13 +391,25 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string) error
 			ui.Print("  %s You can try again later: %s", ui.IconArrow, ui.Cyan(fmt.Sprintf("gcm github login %s", profileName)))
 			return nil
 		}
-		if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
-			ui.Error("Could not save GitHub token: %v", saveErr)
-			return nil
-		}
 		p, _ := ctr.ProfileManager.Get(profileName)
 		if p != nil {
-			setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodPAT)
+			def, defErr := githubProviderDefinition()
+			if defErr != nil {
+				return defErr
+			}
+			tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodPAT, TokenType: "pat"}
+			ok, transitionErr := applyProfileProviderTransition(ctx, profileName, p, def, user.Login, providerpkg.AuthMethodPAT, true, func() error {
+				return saveProviderToken(profileName, def, p, tokenSet)
+			})
+			if transitionErr != nil {
+				ui.Error("Could not update provider: %v", transitionErr)
+				return nil
+			}
+			if !ok {
+				ui.Info("Provider change cancelled")
+				return nil
+			}
+			_ = ctr.GitHubClient.SaveToken(profileName, token)
 			_ = ctr.ProfileManager.Update(p)
 		}
 		ui.Success("Authenticated with GitHub as @%s", user.Login)
@@ -430,16 +442,28 @@ func runSetupGitHubAuthentication(ctx context.Context, profileName string) error
 
 	ctr.GitHubClient.SetToken(token)
 	user, _ := ctr.GitHubClient.VerifyToken(ctx)
-	if saveErr := ctr.GitHubClient.SaveToken(profileName, token); saveErr != nil {
-		ui.Error("Could not save GitHub token: %v", saveErr)
-		return nil
-	}
 	login := profileName
 	if user != nil {
 		login = user.Login
 	}
 	if p, _ := ctr.ProfileManager.Get(profileName); p != nil && user != nil {
-		setProfileProviderAccount(p, providerpkg.GitHubID, user.Login, providerpkg.AuthMethodOAuthDevice)
+		def, defErr := githubProviderDefinition()
+		if defErr != nil {
+			return defErr
+		}
+		tokenSet := providerpkg.TokenSet{AccessToken: token, AuthMethod: providerpkg.AuthMethodOAuthDevice, TokenType: "bearer"}
+		ok, transitionErr := applyProfileProviderTransition(ctx, profileName, p, def, user.Login, providerpkg.AuthMethodOAuthDevice, true, func() error {
+			return saveProviderToken(profileName, def, p, tokenSet)
+		})
+		if transitionErr != nil {
+			ui.Error("Could not update provider: %v", transitionErr)
+			return nil
+		}
+		if !ok {
+			ui.Info("Provider change cancelled")
+			return nil
+		}
+		_ = ctr.GitHubClient.SaveToken(profileName, token)
 		_ = ctr.ProfileManager.Update(p)
 	}
 	ui.Success("Authenticated with GitHub as @%s", login)
@@ -473,11 +497,17 @@ func runSetupGitLabAuthentication(ctx context.Context, profileName string, def p
 
 	p, _ := ctr.ProfileManager.Get(profileName)
 	if p != nil {
-		setProfileProviderAccount(p, providerpkg.GitLabID, user.Username, providerpkg.AuthMethodPAT)
-	}
-	if saveErr := saveProviderToken(profileName, def, p, tokenSet); saveErr != nil {
-		ui.Error("Could not save GitLab token: %v", saveErr)
-		return nil
+		ok, transitionErr := applyProfileProviderTransition(ctx, profileName, p, def, user.Username, providerpkg.AuthMethodPAT, true, func() error {
+			return saveProviderToken(profileName, def, p, tokenSet)
+		})
+		if transitionErr != nil {
+			ui.Error("Could not update provider: %v", transitionErr)
+			return nil
+		}
+		if !ok {
+			ui.Info("Provider change cancelled")
+			return nil
+		}
 	}
 	if p != nil {
 		_ = ctr.ProfileManager.Update(p)

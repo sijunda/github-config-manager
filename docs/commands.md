@@ -121,6 +121,8 @@ gcm profile create work --name "Jane" --email "jane@acme.example" --ssh-key ~/.s
 3. **GPG signing** — generate new GPG key or skip
 4. **Provider account** — choose one provider for the profile, set its username, or skip
 
+If you change an existing profile from one provider to another, GCM asks for explicit confirmation before cleaning old provider data: stored token, cached git credentials, credential username, uploaded SSH/GPG keys when the old token can still access them, and the local SSH key filename.
+
 **Validation:**
 - `--name` and `--email` are required unless `--interactive` is set
 - Profile name must not contain `/`, `\`, `..`, or control characters
@@ -150,7 +152,7 @@ gcm profile show work
 
 ### `gcm profile edit <name>`
 
-Edit a profile's name or email.
+Edit a profile's identity and provider account.
 
 ```bash
 gcm profile edit work -n "Jane Smith"
@@ -162,6 +164,8 @@ gcm profile edit work -n "Jane Smith" -e "jane.smith@acme.example"
 | --------- | ----- | ------------------- |
 | `--name`  | `-n`  | Update `user.name`  |
 | `--email` | `-e`  | Update `user.email` |
+
+Interactive edit can change the profile provider. Provider changes are treated as a destructive transition: GCM confirms first, then removes old provider credentials and remote uploaded keys before saving the new provider account.
 
 ### `gcm profile delete <name>`
 
