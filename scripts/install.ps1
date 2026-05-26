@@ -1,4 +1,4 @@
-# GCM (Git Config Manager) installation script for Windows
+﻿# GCM (Git Config Manager) installation script for Windows
 # This script installs gcm to $env:USERPROFILE\.local\bin and adds it to PATH
 
 param(
