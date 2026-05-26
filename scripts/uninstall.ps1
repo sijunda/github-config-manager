@@ -1,4 +1,4 @@
-# GCM (Git Config Manager) uninstallation script for Windows
+﻿# GCM (Git Config Manager) uninstallation script for Windows
 # This script removes gcm from $env:USERPROFILE\.local\bin and cleans PATH
 
 param(
