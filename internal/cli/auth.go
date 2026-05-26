@@ -309,7 +309,8 @@ func runAuthLogout(ctx context.Context, profileName string, opts authLogoutOptio
 		printAuthLogoutPlan(profileName, def, scope, status)
 		return nil
 	}
-	if (scope == "external" || scope == "all") && !opts.yes {
+	externalOwned := nonGCMExternalCredentialPresent(status.ExternalCredential)
+	if (scope == "external" || scope == "all") && externalOwned && !opts.yes {
 		ui.Warning("This can delete credentials owned by another tool from Git's credential chain.")
 		ok, askErr := ui.AskConfirm(fmt.Sprintf("Delete %s external credential for %q?", def.DisplayName, profileName), false)
 		if askErr != nil || !ok {
@@ -330,7 +331,7 @@ func runAuthLogout(ctx context.Context, profileName string, opts authLogoutOptio
 	}
 
 	if scope == "external" || scope == "all" {
-		if status.ExternalCredential.Present && status.ExternalCredential.Source != authsvc.SourceGCMStore {
+		if externalOwned {
 			username := firstNonEmptyString(status.ExternalCredential.Username, providerAccountForProfile(p, def.ID).Username)
 			if err := authManager().ExternalInspector.RejectGitCredential(ctx, def, username); err != nil {
 				return err
@@ -610,7 +611,7 @@ func printAuthInspect(status authsvc.ProfileAuthStatus) {
 	ui.Detail("Username", firstNonEmptyString(status.Username, "-"))
 	ui.Blank()
 	printCredentialDetail("GCM", status.GCMCredential)
-	printCredentialDetail("External Git", status.ExternalCredential)
+	printCredentialDetail(gitCredentialDetailLabel(status.ExternalCredential), status.ExternalCredential)
 	printCredentialDetail("SSH", status.SSHCredential)
 	if len(status.CredentialHelpers) > 0 {
 		ui.Blank()
@@ -624,6 +625,13 @@ func printAuthInspect(status authsvc.ProfileAuthStatus) {
 		}
 	}
 	printAuthFindings([]authsvc.ProfileAuthStatus{status})
+}
+
+func gitCredentialDetailLabel(credential authsvc.CredentialStatus) string {
+	if credential.Source == authsvc.SourceGCMStore {
+		return "Git via GCM Helper"
+	}
+	return "External Git"
 }
 
 func printCredentialDetail(label string, credential authsvc.CredentialStatus) {
@@ -672,7 +680,7 @@ func printAuthLogoutPlan(profileName string, def providerpkg.Definition, scope s
 		ui.Detail("GCM Token", presentLabel(status.GCMCredential.Present))
 	}
 	if scope == "external" || scope == "all" {
-		ui.Detail("External Credential", fmt.Sprintf("%s (%s)", presentLabel(status.ExternalCredential.Present), status.ExternalCredential.Source))
+		ui.Detail("External Credential", fmt.Sprintf("%s (%s)", presentLabel(nonGCMExternalCredentialPresent(status.ExternalCredential)), status.ExternalCredential.Source))
 	}
 	ui.Print("No files or credentials were changed.")
 }
@@ -681,6 +689,9 @@ func buildAuthDoctorReport(statuses []authsvc.ProfileAuthStatus) authDoctorRepor
 	report := authDoctorReport{GeneratedAt: time.Now().UTC().Format(time.RFC3339), Statuses: statuses}
 	for _, status := range statuses {
 		for _, finding := range status.Findings {
+			if !isActionableAuthDoctorFinding(status, finding) {
+				continue
+			}
 			report.Findings = append(report.Findings, authDoctorFinding{
 				Profile:  status.Profile,
 				Provider: string(status.Provider),
@@ -693,6 +704,10 @@ func buildAuthDoctorReport(statuses []authsvc.ProfileAuthStatus) authDoctorRepor
 	}
 	report.IssueCount = len(report.Findings)
 	return report
+}
+
+func isActionableAuthDoctorFinding(status authsvc.ProfileAuthStatus, finding authsvc.Finding) bool {
+	return !(finding.Code == "profile_provider_unresolved" && status.Provider == "")
 }
 
 func effectiveAuthSource(status authsvc.ProfileAuthStatus) authsvc.CredentialSource {
@@ -750,6 +765,10 @@ func presentLabel(present bool) string {
 		return "present"
 	}
 	return "absent"
+}
+
+func nonGCMExternalCredentialPresent(credential authsvc.CredentialStatus) bool {
+	return credential.Present && credential.Source != authsvc.SourceGCMStore
 }
 
 func writeJSON(v any) error {

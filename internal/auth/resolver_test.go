@@ -135,6 +135,83 @@ func TestResolveConflictingCredentials(t *testing.T) {
 	}
 }
 
+func TestResolveGCMHelperCredentialForDifferentActiveProfileDoesNotConflict(t *testing.T) {
+	def := testDefinition()
+	p := testProfile()
+	p.Providers["github"] = profile.ProviderAccountConfig{Username: "justjundana"}
+	key := TokenKey("work", def, p)
+	manager := &Manager{
+		TokenStore: fakeTokenStore{tokens: map[providerpkg.TokenKey]providerpkg.TokenSet{key: {AccessToken: "profile-token"}}},
+		Verifier:   fakeVerifier{"profile-token": {Username: "justjundana"}},
+		ExternalInspector: fakeExternalInspector{inspection: GitCredentialInspection{Credential: CredentialStatus{
+			Type: "https", Source: SourceGCMStore, Ownership: OwnershipGCM, State: StateAuthenticatedGCM, Present: true, Secret: "active-profile-token", Username: "sijunda",
+		}}},
+	}
+
+	status, err := manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def, Verify: true, InspectExternal: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if status.State != StateAuthenticatedGCM || status.Ownership != OwnershipGCM || status.Username != "justjundana" {
+		t.Fatalf("expected GCM-owned status for profile token: %+v", status)
+	}
+	if status.ExternalCredential.State != StateAuthenticatedGCM || status.ExternalCredential.Ownership != OwnershipGCM || status.ExternalCredential.Verified {
+		t.Fatalf("GCM helper credential should remain non-external and unverified by resolver: %+v", status.ExternalCredential)
+	}
+	if status.hasFinding("account_mismatch") || status.hasFinding("credential_conflict") || status.hasFinding("external_credential_present") {
+		t.Fatalf("GCM helper credential should not create external findings: %+v", status.Findings)
+	}
+}
+
+func TestResolveGCMHelperCredentialMirrorsProfileTokenVerification(t *testing.T) {
+	def := testDefinition()
+	p := testProfile()
+	key := TokenKey("work", def, p)
+	manager := &Manager{
+		TokenStore: fakeTokenStore{tokens: map[providerpkg.TokenKey]providerpkg.TokenSet{key: {AccessToken: "profile-token", AuthMethod: providerpkg.AuthMethodPAT}}},
+		Verifier:   fakeVerifier{"profile-token": {Username: "octo"}},
+		ExternalInspector: fakeExternalInspector{inspection: GitCredentialInspection{Credential: CredentialStatus{
+			Type: "https", Source: SourceGCMStore, Ownership: OwnershipGCM, State: StateAuthenticatedGCM, Present: true, Secret: "profile-token", Username: "octo",
+		}}},
+	}
+
+	status, err := manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def, Verify: true, InspectExternal: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !status.ExternalCredential.Verified || status.ExternalCredential.AuthMethod != providerpkg.AuthMethodPAT {
+		t.Fatalf("expected helper credential to mirror GCM verification: %+v", status.ExternalCredential)
+	}
+}
+
+func TestResolveGCMHelperCredentialWithoutProfileTokenIsNotExternal(t *testing.T) {
+	def := testDefinition()
+	p := testProfile()
+	manager := &Manager{
+		TokenStore: fakeTokenStore{tokens: map[providerpkg.TokenKey]providerpkg.TokenSet{}},
+		Verifier:   fakeVerifier{"active-profile-token": {Username: "sijunda"}},
+		ExternalInspector: fakeExternalInspector{inspection: GitCredentialInspection{Credential: CredentialStatus{
+			Type: "https", Source: SourceGCMStore, Ownership: OwnershipGCM, State: StateAuthenticatedGCM, Present: true, Secret: "active-profile-token", Username: "sijunda",
+		}}},
+	}
+
+	status, err := manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def, Verify: true, InspectExternal: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if status.State != StateUnauthenticated || status.Ownership != OwnershipUnknown {
+		t.Fatalf("GCM helper credential without profile token should not authenticate the profile: %+v", status)
+	}
+	if status.ExternalCredential.Verified || status.hasFinding("external_credential_present") {
+		t.Fatalf("GCM helper credential should not be treated as adoptable external auth: %+v", status)
+	}
+	for _, recommendation := range status.Recommendations {
+		if recommendation.Command == "gcm auth adopt work --provider github" {
+			t.Fatalf("unexpected external adoption recommendation: %+v", status.Recommendations)
+		}
+	}
+}
+
 func TestResolveExpiredTokenFallsBackToSSHPartial(t *testing.T) {
 	def := testDefinition()
 	tmp := t.TempDir()

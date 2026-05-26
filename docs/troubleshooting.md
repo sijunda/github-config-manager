@@ -288,14 +288,14 @@ gcm doctor
 gcm auth inspect work --provider github
 ```
 
-If `git push` works but GCM says the profile is not authenticated, Git is likely using an external credential that GCM does not own. Use `gcm auth inspect <profile> --provider github` to see the source. If the external credential is exportable and matches the intended account, adopt it explicitly:
+If `git push` works but GCM says the profile is not authenticated, Git may be using an external credential that GCM does not own. Use `gcm auth inspect <profile> --provider github` to see the source. If the source is `gcm-store`, Git is being served by GCM's own credential helper for the active profile; use `gcm use <profile>` or login the target profile instead of adopting it as external auth. If the external credential is exportable and matches the intended account, adopt it explicitly:
 
 ```bash
 gcm auth adopt work --provider github --dry-run
 gcm auth adopt work --provider github --yes
 ```
 
-If you do not want GCM to own that credential, leave it external; status will report it as `authenticated:external` instead of pretending it is GCM-managed.
+If you do not want GCM to own that credential, leave it external; status will report true non-GCM credentials as `authenticated:external` instead of pretending they are GCM-managed.
 
 ---
 

@@ -94,7 +94,7 @@ By default, `repair` only reports. `--fix` applies safe local repairs and asks f
 
 Inspect and manage provider authentication ownership. These commands distinguish GCM-managed tokens from external Git credentials such as macOS Keychain, Windows Credential Manager, Git Credential Manager, GitHub CLI, libsecret, and other Git credential helpers.
 
-GCM-owned credentials live in GCM's provider-aware token store. External credentials are detected and explained, but GCM does not adopt or delete them unless you run an explicit `gcm auth adopt` or `gcm auth logout --scope external|all` command.
+GCM-owned credentials live in GCM's provider-aware token store. When Git returns a credential through `gcm credential-helper`, it is treated as GCM-owned effective Git auth, not as an external credential. External credentials are detected and explained, but GCM does not adopt or delete them unless you run an explicit `gcm auth adopt` or `gcm auth logout --scope external|all` command.
 
 ### `gcm auth status [profile]`
 
@@ -158,7 +158,7 @@ gcm auth logout work --scope external --yes
 gcm auth logout work --scope all --yes
 ```
 
-Default logout only removes GCM-owned credentials. External credential deletion uses `git credential reject` and requires confirmation unless `--yes` is supplied.
+Default logout only removes GCM-owned credentials. External credential deletion uses `git credential reject` and requires confirmation unless `--yes` is supplied. Credentials served by `gcm credential-helper` are skipped by `--scope external` because they are already owned by GCM.
 
 | Flag             | Short | Default | Description                                      |
 | ---------------- | ----- | ------- | ------------------------------------------------ |
@@ -178,7 +178,7 @@ gcm auth doctor work --provider github
 gcm auth doctor --json
 ```
 
-Findings include missing GCM credential helper registration, external credentials that are not GCM-owned, stale/revoked GCM tokens, mixed credentials, account mismatches, and unauthenticated profiles.
+Findings include missing GCM credential helper registration, external credentials that are not GCM-owned, stale/revoked GCM tokens, mixed credentials, account mismatches, and unauthenticated provider profiles. Profiles with no provider configured are local-only and are not counted as auth doctor issues unless you inspect them directly with `gcm auth status`.
 
 ### `gcm auth repair [profile]`
 

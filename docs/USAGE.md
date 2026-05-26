@@ -442,7 +442,7 @@ gcm connect work --provider github
 gcm connect work --provider gitlab
 ```
 
-One profile belongs to one provider. Authentication status is source-aware: GCM distinguishes tokens it owns from external Git credentials returned by helpers such as Keychain, Git Credential Manager, GitHub CLI, or libsecret.
+One profile belongs to one provider. Authentication status is source-aware: GCM distinguishes tokens it owns from external Git credentials returned by helpers such as Keychain, Git Credential Manager, GitHub CLI, or libsecret. Credentials returned by `gcm credential-helper` are treated as GCM-owned effective Git auth, not as external credentials to adopt or delete.
 
 ```bash
 gcm auth status work --provider github --verbose
@@ -453,7 +453,7 @@ gcm auth doctor work
 gcm auth repair --dry-run
 ```
 
-Use `gcm auth adopt` only when you intentionally want to copy an exportable external Git credential into GCM's provider-aware token store. Use `gcm auth logout --scope external` only when you intentionally want GCM to ask Git's credential chain to remove a credential owned by another tool.
+Use `gcm auth adopt` only when you intentionally want to copy an exportable external Git credential into GCM's provider-aware token store. Use `gcm auth logout --scope external` only when you intentionally want GCM to ask Git's credential chain to remove a credential owned by another tool; `gcm-store` credentials are skipped because they already belong to GCM.
 
 GCM supports multiple GitHub authentication methods:
 

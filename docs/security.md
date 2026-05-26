@@ -210,14 +210,15 @@ Provider-aware token files in `~/.gcm/tokens/` are encrypted with **AES-256-GCM*
 
 `gcm doctor` checks that the credential helper is properly registered. If it's missing, run `gcm init` to re-register it.
 
-`gcm auth status` and `gcm auth inspect` add source-aware diagnostics:
+`gcm auth status` and `gcm auth inspect` add source-aware diagnostics. Credentials returned by `gcm credential-helper` are classified as GCM-owned because Git is reading from GCM's provider-aware token store, not from an external credential manager.
+
 - `authenticated:gcm` — GCM owns and can verify the provider token
 - `authenticated:external` — Git can authenticate through a credential GCM does not own
 - `authenticated:mixed` — GCM and external credentials are both present
 - `conflicted` — credentials resolve to different accounts or do not match profile metadata
 - `revoked` / `expired` — GCM-managed token is present but no longer usable
 
-`gcm auth adopt` verifies an exportable external credential before saving it into GCM's token store. `gcm auth repair` can safely re-register the credential helper; it does not adopt or delete external credentials.
+`gcm auth adopt` verifies an exportable external credential before saving it into GCM's token store. `gcm auth logout --scope external` skips `gcm-store` credentials and only asks Git to reject credentials owned by another helper. `gcm auth repair` can safely re-register the credential helper; it does not adopt or delete external credentials.
 
 ---
 

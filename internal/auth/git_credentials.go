@@ -98,9 +98,15 @@ func (i *GitCredentialInspector) InspectGitCredential(ctx context.Context, def p
 	}
 
 	inspection.Credential.Present = true
-	inspection.Credential.Exportable = true
 	inspection.Credential.Secret = secret
 	inspection.Credential.Source = classifyCredentialSource(helpers)
+	if inspection.Credential.Source == SourceGCMStore {
+		inspection.Credential.Exportable = false
+		inspection.Credential.Ownership = OwnershipGCM
+		inspection.Credential.State = StateAuthenticatedGCM
+		return inspection, nil
+	}
+	inspection.Credential.Exportable = true
 	inspection.Credential.Ownership = OwnershipExternal
 	inspection.Credential.State = StateAuthenticatedExternal
 	return inspection, nil

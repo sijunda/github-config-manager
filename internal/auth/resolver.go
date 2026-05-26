@@ -92,6 +92,10 @@ func (m *Manager) Resolve(ctx context.Context, req ResolveRequest) (ProfileAuthS
 			status.ExternalCredential = inspection.Credential
 			status.CredentialHelpers = inspection.Helpers
 			status.ExternalCredential.Helpers = inspection.Helpers
+			if status.ExternalCredential.Source == SourceGCMStore && credentialsReferToSameSecret(status.GCMCredential, status.ExternalCredential) {
+				status.ExternalCredential.Verified = status.GCMCredential.Verified
+				status.ExternalCredential.AuthMethod = firstNonEmpty(status.ExternalCredential.AuthMethod, status.GCMCredential.AuthMethod)
+			}
 			if inspection.Error != "" {
 				status.addFinding("external_inspection_error", "warning", fmt.Sprintf("External Git credential inspection failed: %s", inspection.Error), "Run: gcm auth inspect "+req.ProfileName+" --verbose")
 			}
@@ -99,7 +103,7 @@ func (m *Manager) Resolve(ctx context.Context, req ResolveRequest) (ProfileAuthS
 				status.addFinding("credential_helper_missing", "warning", fmt.Sprintf("GCM is not registered as git credential helper for %s", req.Provider.CredentialServer()), "Run: gcm auth repair --yes")
 			}
 		}
-		if req.Verify && status.ExternalCredential.Present && status.ExternalCredential.Secret != "" {
+		if req.Verify && status.ExternalCredential.Present && status.ExternalCredential.Secret != "" && status.ExternalCredential.Source != SourceGCMStore {
 			m.verifyCredential(resolveCtx, req.Provider, &status.ExternalCredential, StateAuthenticatedExternal)
 		}
 	}
@@ -196,6 +200,9 @@ func (s *ProfileAuthStatus) applyAccountFindings(account profile.ProviderAccount
 		return
 	}
 	for _, credential := range []CredentialStatus{s.GCMCredential, s.ExternalCredential} {
+		if credential.Source == SourceGCMStore && credential.Ownership == OwnershipGCM && credential.Type == "https" && credential.Secret != s.GCMCredential.Secret {
+			continue
+		}
 		if credential.Present && credential.Username != "" && !strings.EqualFold(credential.Username, account.Username) {
 			s.addFinding("account_mismatch", "error", fmt.Sprintf("Credential user %q does not match profile account %q", credential.Username, account.Username), "Run: gcm auth inspect "+s.Profile)
 		}

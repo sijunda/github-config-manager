@@ -137,3 +137,63 @@ func TestRunAuthLogoutDryRunDoesNotRejectExternalCredential(t *testing.T) {
 		t.Fatalf("missing logout dry-run details:\n%s", output)
 	}
 }
+
+func TestRunAuthLogoutIgnoresGCMHelperCredentialAsExternal(t *testing.T) {
+	c := withRepairTestContainer(t)
+	createAuthTestProfile(t, "work", providerpkg.GitHubID, "octo")
+	inspector := &cliAuthFakeInspector{inspection: authsvc.GitCredentialInspection{Credential: authsvc.CredentialStatus{
+		Type: "https", Source: authsvc.SourceGCMStore, Ownership: authsvc.OwnershipGCM, State: authsvc.StateAuthenticatedGCM, Present: true, Secret: "active-profile-token", Username: "other",
+	}}}
+	manager := authsvc.NewManager(c.TokenStore, cliAuthFakeVerifier{})
+	manager.ExternalInspector = inspector
+	withAuthManagerFactory(t, manager)
+
+	output := captureStdout(t, func() {
+		if err := runAuthLogout(context.Background(), "work", authLogoutOptions{scope: "external"}); err != nil {
+			t.Fatalf("runAuthLogout: %v", err)
+		}
+	})
+	if inspector.rejected {
+		t.Fatal("GCM helper credential should not be rejected as external")
+	}
+	if !strings.Contains(output, "No external credential owned by another tool was found.") {
+		t.Fatalf("missing no-external message:\n%s", output)
+	}
+}
+
+func TestBuildAuthDoctorReportSkipsProviderlessProfiles(t *testing.T) {
+	report := buildAuthDoctorReport([]authsvc.ProfileAuthStatus{
+		{
+			Profile: "local-only",
+			State:   authsvc.StateUnauthenticated,
+			Findings: []authsvc.Finding{{
+				Code:     "profile_provider_unresolved",
+				Severity: "warning",
+				Message:  "no provider",
+			}},
+		},
+		{
+			Profile:  "work",
+			Provider: providerpkg.GitHubID,
+			State:    authsvc.StateUnauthenticated,
+			Findings: []authsvc.Finding{{
+				Code:     "not_authenticated",
+				Severity: "warning",
+				Message:  "No GCM-managed or external HTTPS credential was found",
+			}},
+		},
+	})
+
+	if report.IssueCount != 1 || len(report.Findings) != 1 || report.Findings[0].Profile != "work" {
+		t.Fatalf("unexpected doctor report: %+v", report)
+	}
+}
+
+func TestGitCredentialDetailLabel(t *testing.T) {
+	if got := gitCredentialDetailLabel(authsvc.CredentialStatus{Source: authsvc.SourceGCMStore}); got != "Git via GCM Helper" {
+		t.Fatalf("GCM label = %q", got)
+	}
+	if got := gitCredentialDetailLabel(authsvc.CredentialStatus{Source: authsvc.SourceOSXKeychain}); got != "External Git" {
+		t.Fatalf("external label = %q", got)
+	}
+}

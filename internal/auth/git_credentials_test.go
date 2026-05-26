@@ -75,6 +75,9 @@ func TestInspectGitCredential(t *testing.T) {
 	if !inspection.Credential.Present || inspection.Credential.Secret != "secret" || inspection.Credential.Source != SourceGCMStore {
 		t.Fatalf("unexpected credential: %+v", inspection.Credential)
 	}
+	if inspection.Credential.Ownership != OwnershipGCM || inspection.Credential.State != StateAuthenticatedGCM || inspection.Credential.Exportable {
+		t.Fatalf("GCM helper credential should be GCM-owned and non-exportable: %+v", inspection.Credential)
+	}
 	if !inspection.GCMConfigured || len(inspection.Helpers) != 3 {
 		t.Fatalf("unexpected helpers: %+v", inspection.Helpers)
 	}
