@@ -42,20 +42,21 @@
 
 | Feature | Demo |
 |---------|------|
-| Version & Help | ![Version](docs/demos/01-version.gif) |
-| Create Profiles | ![Create](docs/demos/02-create-profiles.gif) |
-| List & Inspect | ![List](docs/demos/03-list-profiles.gif) |
-| Switch Profiles | ![Switch](docs/demos/04-switch-profiles.gif) |
-| SSH Keys | ![SSH](docs/demos/05-ssh.gif) |
-| GPG Signing | ![GPG](docs/demos/06-gpg.gif) |
-| Provider Commands | ![Provider](docs/demos/07-github.gif) |
-| Validate | ![Validate](docs/demos/08-validate.gif) |
-| Doctor | ![Doctor](docs/demos/09-doctor.gif) |
-| Status | ![Status](docs/demos/10-status.gif) |
-| Templates | ![Templates](docs/demos/11-templates.gif) |
-| Backup & Restore | ![Backup](docs/demos/12-backup.gif) |
-| Shell Integration | ![Shell](docs/demos/13-shell.gif) |
-| Export & Diff | ![Export](docs/demos/14-export-diff.gif) |
+| Version & Help | ![Version](docs/demos/01-version-overview.gif) |
+| Create Profiles | ![Create](docs/demos/02-create-git-profiles.gif) |
+| List & Inspect | ![List](docs/demos/03-list-inspect-profiles.gif) |
+| Switch Profiles | ![Switch](docs/demos/04-switch-between-profiles.gif) |
+| SSH Keys | ![SSH](docs/demos/05-ssh-key-management.gif) |
+| GPG Signing | ![GPG](docs/demos/06-gpg-commit-signing.gif) |
+| Provider Commands | ![Provider](docs/demos/07-provider-integrations.gif) |
+| Auth Ownership | ![Auth Ownership](docs/demos/08-auth-ownership-sources.gif) |
+| Validate | ![Validate](docs/demos/09-validate-profiles.gif) |
+| Doctor | ![Doctor](docs/demos/10-system-health-check.gif) |
+| Status | ![Status](docs/demos/11-status-dashboard.gif) |
+| Templates | ![Templates](docs/demos/12-configuration-templates.gif) |
+| Backup & Restore | ![Backup](docs/demos/13-backup-restore.gif) |
+| Shell Integration | ![Shell](docs/demos/14-shell-integration.gif) |
+| Export & Diff | ![Export](docs/demos/15-profile-export-diff.gif) |
 
 </details>
 
