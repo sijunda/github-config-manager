@@ -180,6 +180,7 @@ func newGitLabLogoutCmd() *cobra.Command {
 				}
 			}
 
+			hadStoredToken := providerTokenPresent(profileName, def, profileConfig)
 			if err := deleteProviderToken(profileName, def, profileConfig); err != nil {
 				ctr.AuditLogger.Log(audit.ActionProviderLogout, profileName,
 					map[string]string{"provider": string(providerpkg.GitLabID)}, err)
@@ -188,13 +189,19 @@ func newGitLabLogoutCmd() *cobra.Command {
 
 			ctr.AuditLogger.Log(audit.ActionProviderLogout, profileName,
 				map[string]string{"provider": string(providerpkg.GitLabID)}, nil)
-			ui.Success("GitLab token removed for profile %q", profileName)
+			if hadStoredToken {
+				ui.Success("GitLab token removed for profile %q", profileName)
+			} else {
+				ui.Info("No GitLab token was stored for profile %q.", profileName)
+			}
 
 			if clearGitCreds && isActiveProfile(profileName) {
+				_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "")
 				if err := ctr.GitHubClient.ClearGitCredentials(def.CredentialServer()); err != nil {
 					ui.Warning("Git credentials could not be cleared automatically.")
 				} else {
-					ui.Success("GitLab git credentials cleared.")
+					ui.Success("HTTPS Git credentials and username pin cleared for %s.", def.CredentialServer())
+					ui.Print("  SSH remotes and profile SSH keys are unchanged, so git may still work over SSH.")
 				}
 			}
 

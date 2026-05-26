@@ -103,21 +103,22 @@ type Recommendation struct {
 
 // ProfileAuthStatus is the full source-aware status for one profile/provider pair.
 type ProfileAuthStatus struct {
-	GeneratedAt        time.Time                `json:"generated_at"`
-	Profile            string                   `json:"profile"`
-	Provider           providerpkg.ProviderID   `json:"provider"`
-	ProviderName       string                   `json:"provider_name"`
-	Host               string                   `json:"host"`
-	State              State                    `json:"state"`
-	Ownership          Ownership                `json:"ownership"`
-	Username           string                   `json:"username,omitempty"`
-	GCMCredential      CredentialStatus         `json:"gcm_credential"`
-	ExternalCredential CredentialStatus         `json:"external_credential"`
-	SSHCredential      CredentialStatus         `json:"ssh_credential"`
-	Capabilities       []CapabilityStatus       `json:"capabilities"`
-	CredentialHelpers  []CredentialHelperStatus `json:"credential_helpers,omitempty"`
-	Findings           []Finding                `json:"findings,omitempty"`
-	Recommendations    []Recommendation         `json:"recommendations,omitempty"`
+	GeneratedAt           time.Time                `json:"generated_at"`
+	Profile               string                   `json:"profile"`
+	Provider              providerpkg.ProviderID   `json:"provider"`
+	ProviderName          string                   `json:"provider_name"`
+	Host                  string                   `json:"host"`
+	State                 State                    `json:"state"`
+	Ownership             Ownership                `json:"ownership"`
+	Username              string                   `json:"username,omitempty"`
+	GCMCredential         CredentialStatus         `json:"gcm_credential"`
+	ExternalCredential    CredentialStatus         `json:"external_credential"`
+	SSHCredential         CredentialStatus         `json:"ssh_credential"`
+	Capabilities          []CapabilityStatus       `json:"capabilities"`
+	CredentialHelpers     []CredentialHelperStatus `json:"credential_helpers,omitempty"`
+	GitCredentialUsername string                   `json:"git_credential_username,omitempty"`
+	Findings              []Finding                `json:"findings,omitempty"`
+	Recommendations       []Recommendation         `json:"recommendations,omitempty"`
 }
 
 // ResolveRequest controls a single auth resolution.

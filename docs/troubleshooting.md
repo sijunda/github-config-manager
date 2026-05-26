@@ -219,6 +219,17 @@ gcm github login-oauth work        # OAuth device flow (browser-based)
 gcm github login-gh work           # import from GitHub CLI
 ```
 
+### SSH key upload says the key is already in use
+
+Providers allow one owner for each SSH public key. If `gcm ssh upload <profile>` says the key is already registered but it was not found on the authenticated account, the same public key is attached to another provider account or as a deploy key.
+
+Remove the key from the other owner, or replace the local profile key and upload the new one:
+
+```bash
+gcm ssh generate <profile> --overwrite
+gcm ssh upload <profile>
+```
+
 ### Token expired or revoked
 
 If `gcm github verify` says the token is invalid:
@@ -249,6 +260,7 @@ GCM automatically isolates git credentials per profile when you `gcm use`. If yo
    gcm auth logout <wrong-profile> --scope external --dry-run
    gcm github logout <wrong-profile> --clear-credentials
    ```
+   This clears HTTPS credentials and provider username pinning only. SSH remotes and profile SSH keys are unchanged.
 
 4. **Inspect credential ownership and source:**
    ```bash

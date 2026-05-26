@@ -109,7 +109,7 @@ gcm auth status --json
 
 **Output columns:** Profile, Provider, State, Owner, Source, Username, Findings.
 
-Common states include `authenticated:gcm`, `authenticated:external`, `authenticated:mixed`, `partial`, `expired`, `revoked`, `conflicted`, `unknown`, and `unauthenticated`.
+Common states include `authenticated:gcm`, `authenticated:external`, `authenticated:mixed`, `expired`, `revoked`, `conflicted`, `unknown`, and `unauthenticated`. SSH-only profiles (no HTTPS credential) report `unauthenticated` with an `ssh_only` finding.
 
 | Flag             | Short | Description                                      |
 | ---------------- | ----- | ------------------------------------------------ |
@@ -571,6 +571,8 @@ gcm ssh upload work-gitlab --provider gitlab --force    # skip duplicate check
 4. If the key already exists, reports "already uploaded" and exits
 5. Otherwise, uploads with title `gcm-<profile>-<provider>-ssh-<type>`
 
+If the provider rejects the upload because the key is already registered but it was not listed for the authenticated account, that key belongs to another account or deploy key. Remove it from the other owner, or generate a fresh profile key with `gcm ssh generate <profile> --overwrite` and retry `gcm ssh upload <profile>`.
+
 ---
 
 ## `gcm gpg`
@@ -727,24 +729,24 @@ gcm github status
 
 ### `gcm github logout <profile>`
 
-Remove the stored GitHub token for a profile and clear git credentials.
+Remove the stored GitHub token for a profile and clear cached HTTPS Git credentials.
 
 ```bash
-gcm github logout work-github                         # remove token + clear git credentials
+gcm github logout work-github                         # remove token + clear HTTPS credentials
 gcm github logout work-github --clear-credentials=false  # only remove GCM token
 ```
 
 | Flag                  | Short | Default | Description                                                 |
 | --------------------- | ----- | ------- | ----------------------------------------------------------- |
-| `--clear-credentials` |       | true    | Also clear cached git credentials via `git credential reject` |
+| `--clear-credentials` |       | true    | Also clear cached HTTPS credentials and the provider username pin |
 | `--force`             | `-f`  | false   | Skip confirmation when logging out a non-active profile     |
 
 **What it does:**
 1. If logging out a non-active profile, prompts for confirmation (skip with `--force`)
 2. Deletes the stored token from the keychain/encrypted file
-3. (If `--clear-credentials` AND the profile is currently active) Clears git credentials for GitHub from the system credential store (macOS Keychain, Windows Credential Manager, Linux secret-service)
+3. (If `--clear-credentials` AND the profile is currently active) Clears HTTPS credentials for GitHub from the system credential store and unsets `credential.https://github.com.username`
 
-> **Note:** Git credentials are only cleared if the profile being logged out is the currently active one. This prevents accidentally breaking the active profile's authentication.
+> **Note:** HTTPS credentials and username pinning are only cleared if the profile being logged out is the currently active one. SSH remotes and profile SSH keys are not affected, so `git pull`/`git push` can still work over SSH after logout.
 
 ### `gcm github verify <profile>`
 
@@ -805,7 +807,7 @@ gcm gitlab status
 
 ### `gcm gitlab logout <profile>`
 
-Remove the stored GitLab token for a profile and optionally clear active Git credentials.
+Remove the stored GitLab token for a profile and optionally clear active HTTPS Git credentials. SSH remotes and profile SSH keys are not affected.
 
 ```bash
 gcm gitlab logout work-gitlab

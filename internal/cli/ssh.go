@@ -359,7 +359,7 @@ Examples:
 					ui.Info("This SSH key is already uploaded — no action needed.")
 					return nil
 				}
-				sp.Stop(fmt.Sprintf("Key not found on %s — uploading", def.DisplayName))
+				sp.Stop(fmt.Sprintf("Key not found on this %s account — uploading", def.DisplayName))
 			}
 
 			sp2 := ui.NewSpinner(fmt.Sprintf("Uploading SSH key to %s...", def.DisplayName))
@@ -367,6 +367,11 @@ Examples:
 
 			title := providerResourceName(profileName, def, "ssh", string(p.SSH.KeyType))
 			if uploadErr := uploadProviderSSHKey(ctx, def, token, title, pubKey); uploadErr != nil {
+				if providerSSHKeyAlreadyInUse(uploadErr) {
+					sp2.Stop("")
+					printProviderSSHKeyAlreadyInUse(profileName, def)
+					return nil
+				}
 				sp2.StopError("Failed to upload SSH key")
 				ui.Warning("Upload failed: %v", uploadErr)
 				ui.Print("  You can upload manually at: %s", providerManualKeyURL(def, "ssh"))

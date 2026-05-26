@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -126,6 +127,26 @@ func TestProviderResourceNameSanitizesComponents(t *testing.T) {
 	got := providerResourceName("Work/Profile", def, "SSH Key", "ED25519")
 	if got != "gcm-work-profile-gitlab-ssh-key-ed25519" {
 		t.Fatalf("providerResourceName = %q", got)
+	}
+}
+
+func TestProviderSSHKeyAlreadyInUse(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "github key in use", err: fmt.Errorf(`API error 422: {"message":"Validation Failed","errors":[{"message":"key is already in use"}]}`), want: true},
+		{name: "gitlab fingerprint taken", err: fmt.Errorf(`GitLab API error 400: {"message":{"fingerprint":["has already been taken"]}}`), want: true},
+		{name: "other API error", err: fmt.Errorf(`API error 500: unavailable`), want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := providerSSHKeyAlreadyInUse(tc.err); got != tc.want {
+				t.Fatalf("providerSSHKeyAlreadyInUse(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 

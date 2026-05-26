@@ -64,7 +64,7 @@ func (i *GitCredentialInspector) InspectGitCredential(ctx context.Context, def p
 	}
 	input += "\n"
 
-	out, _, fillErr := i.run(ctx, input, "git", "credential", "fill")
+	out, _, _ := i.run(ctx, input, "git", "credential", "fill")
 	fields := parseCredentialOutput(out)
 	credentialUsername := fields["username"]
 	if credentialUsername == "" {
@@ -88,11 +88,6 @@ func (i *GitCredentialInspector) InspectGitCredential(ctx context.Context, def p
 		GCMConfigured:      helpersContainGCM(helpers),
 	}
 
-	if fillErr != nil && secret == "" {
-		inspection.Error = fillErr.Error()
-		inspection.Credential.Error = fillErr.Error()
-		return inspection, nil
-	}
 	if secret == "" {
 		return inspection, nil
 	}

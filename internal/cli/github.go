@@ -199,8 +199,8 @@ func newGitHubLogoutCmd() *cobra.Command {
 
 This deletes the encrypted token from GCM's storage. By default, it also
 clears the cached git credentials from your system (macOS Keychain, Windows
-Credential Manager, or Linux secret-service) so that git push/pull will
-prompt for authentication again.
+Credential Manager, or Linux secret-service). HTTPS Git operations may prompt
+again; SSH remotes and profile SSH keys are not affected.
 
 Use --clear-credentials=false if you only want to remove the token from GCM
 without affecting git operations.
@@ -234,24 +234,31 @@ Examples:
 				}
 			}
 
+			hadStoredToken := providerTokenPresent(profileName, def, p)
 			providerDeleteErr := deleteProviderToken(profileName, def, p)
 			legacyDeleteErr := ctr.GitHubClient.DeleteToken(profileName)
-			if providerDeleteErr != nil && legacyDeleteErr != nil {
+			if hadStoredToken && providerDeleteErr != nil && legacyDeleteErr != nil {
 				ctr.AuditLogger.Log(audit.ActionGitHubLogout, profileName, nil, providerDeleteErr)
 				return fmt.Errorf("could not remove token for profile %q\n\n  The token file may not exist or cannot be accessed.\n  Check with: gcm github status", profileName)
 			}
 
 			ctr.AuditLogger.Log(audit.ActionGitHubLogout, profileName, nil, nil)
-			ui.Success("GitHub token removed for profile %q", profileName)
+			if hadStoredToken {
+				ui.Success("GitHub token removed for profile %q", profileName)
+			} else {
+				ui.Info("No GitHub token was stored for profile %q.", profileName)
+			}
 
 			if clearGitCreds && isActiveProfile(profileName) {
 				// Only clear git credentials if this is the currently active profile.
 				// Clearing credentials for a non-active profile would break the active one.
+				_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "")
 				if err := ctr.GitHubClient.ClearGitCredentials(gitServer()); err != nil {
 					ui.Warning("Git credentials could not be cleared automatically.")
 					ui.Print("  You may need to clear them manually from your system's credential store.")
 				} else {
-					ui.Success("Git credentials cleared — git push/pull will prompt for login.")
+					ui.Success("HTTPS Git credentials and username pin cleared for %s.", def.CredentialServer())
+					ui.Print("  SSH remotes and profile SSH keys are unchanged, so git may still work over SSH.")
 				}
 			} else if clearGitCreds && !isActiveProfile(profileName) {
 				ui.Print("  Note: Git credentials were not cleared because %q is not the active profile.", profileName)

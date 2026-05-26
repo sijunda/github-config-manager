@@ -80,7 +80,7 @@ func (m *Manager) Resolve(ctx context.Context, req ResolveRequest) (ProfileAuthS
 
 	account := profile.ProviderAccount(req.Profile, req.Provider.ID)
 	status.GCMCredential = m.resolveGCMCredential(resolveCtx, req, account)
-	if status.GCMCredential.Username != "" {
+	if status.GCMCredential.Present && status.GCMCredential.Username != "" {
 		status.Username = status.GCMCredential.Username
 	}
 
@@ -91,6 +91,7 @@ func (m *Manager) Resolve(ctx context.Context, req ResolveRequest) (ProfileAuthS
 		} else {
 			status.ExternalCredential = inspection.Credential
 			status.CredentialHelpers = inspection.Helpers
+			status.GitCredentialUsername = inspection.ConfiguredUsername
 			status.ExternalCredential.Helpers = inspection.Helpers
 			if status.ExternalCredential.Source == SourceGCMStore && credentialsReferToSameSecret(status.GCMCredential, status.ExternalCredential) {
 				status.ExternalCredential.Verified = status.GCMCredential.Verified
@@ -124,7 +125,6 @@ func (m *Manager) resolveGCMCredential(ctx context.Context, req ResolveRequest, 
 		Ownership: OwnershipGCM,
 		State:     StateUnauthenticated,
 		Host:      PrimaryHost(req.Provider),
-		Username:  account.Username,
 	}
 	if m == nil || m.TokenStore == nil {
 		credential.Error = "token store is not configured"
@@ -133,7 +133,7 @@ func (m *Manager) resolveGCMCredential(ctx context.Context, req ResolveRequest, 
 
 	token, err := m.TokenStore.LoadTokenSet(TokenKey(req.ProfileName, req.Provider, req.Profile))
 	if err != nil || token.AccessToken == "" {
-		if err != nil {
+		if err != nil && !isTokenMissingError(err) {
 			credential.Error = err.Error()
 		}
 		return credential
@@ -144,6 +144,7 @@ func (m *Manager) resolveGCMCredential(ctx context.Context, req ResolveRequest, 
 	credential.Token = token
 	credential.Secret = token.AccessToken
 	credential.AuthMethod = token.AuthMethod
+	credential.Username = account.Username
 	credential.State = StateAuthenticatedGCM
 
 	now := time.Now
@@ -222,6 +223,10 @@ func (s *ProfileAuthStatus) finalize(p *profile.Profile, def providerpkg.Definit
 		s.addFinding("external_credential_present", "info", "Git can authenticate through an external credential that GCM does not own", fmt.Sprintf("Run: gcm auth adopt %s --provider %s", s.Profile, def.ID))
 		s.Recommendations = append(s.Recommendations, Recommendation{Command: fmt.Sprintf("gcm auth adopt %s --provider %s", s.Profile, def.ID), Reason: "Adopt the external credential into GCM-managed storage"})
 	}
+	if s.GitCredentialUsername != "" && !gcmReady && !externalReady {
+		key := fmt.Sprintf("credential.https://%s.username", s.Host)
+		s.addFinding("credential_username_pinned", "warning", fmt.Sprintf("Git has HTTPS username %q pinned for %s, but no HTTPS credential is available", s.GitCredentialUsername, s.Host), "Run: git config --global --unset "+key)
+	}
 
 	switch {
 	case gcmReady && externalReady:
@@ -253,8 +258,10 @@ func (s *ProfileAuthStatus) finalize(p *profile.Profile, def providerpkg.Definit
 		s.Ownership = OwnershipGCM
 		s.Username = firstNonEmpty(s.GCMCredential.Username, s.Username)
 	case sshReady:
-		s.State = StatePartial
+		s.State = StateUnauthenticated
 		s.Ownership = OwnershipUnknown
+		s.addFinding("ssh_only", "info", "SSH key is available but no HTTPS credential was found", fmt.Sprintf("Run: gcm connect %s --provider %s", s.Profile, def.ID))
+		s.Recommendations = append(s.Recommendations, Recommendation{Command: fmt.Sprintf("gcm connect %s --provider %s", s.Profile, def.ID), Reason: "Create a GCM-managed provider credential for HTTPS operations"})
 	default:
 		s.State = StateUnauthenticated
 		s.Ownership = OwnershipUnknown
@@ -322,6 +329,16 @@ func credentialsReferToSameSecret(a, b CredentialStatus) bool {
 
 func credentialsUserConflict(a, b CredentialStatus) bool {
 	return a.Username != "" && b.Username != "" && !strings.EqualFold(a.Username, b.Username)
+}
+
+func isTokenMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not found") ||
+		strings.Contains(message, "no such file or directory") ||
+		strings.Contains(message, "does not exist")
 }
 
 func firstNonEmpty(values ...string) string {

@@ -394,6 +394,8 @@ If the expected provider-aware key already exists, such as `~/.ssh/id_ed25519_wo
 
 If a provider token is stored for the profile (via `gcm connect <profile> --provider <id>`), GCM will offer to upload the SSH key to that provider automatically after generation.
 
+If upload reports that the SSH key is already registered but not visible on the authenticated account, the key belongs to another account or deploy key. Generate a fresh profile key with `gcm ssh generate <profile> --overwrite`, then rerun `gcm ssh upload <profile>`.
+
 GCM never overwrites an existing local key by default. Use `gcm ssh generate <profile> --overwrite` only when you intentionally want a new key pair at the same deterministic filename and provider upload title.
 
 Flags for `ssh generate`:
@@ -818,6 +820,7 @@ After `gcm use`, git should only use the active profile's credentials. If you're
   gcm github logout <old-profile> --clear-credentials
    gcm use <correct-profile>
    ```
+  `--clear-credentials` clears both cached HTTPS secrets and the provider username pin for the active profile.
 
 3. **Inspect the source Git sees:**
   ```bash

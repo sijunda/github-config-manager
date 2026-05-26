@@ -163,14 +163,16 @@ When running `gcm github login*` commands:
 ### Logout Behavior
 
 `gcm github logout` (with `--clear-credentials`, default true):
-- Only clears git credentials if the logged-out profile is the currently active one (prevents breaking another profile's auth)
-- Calls `git credential reject` to remove the profile's credentials from the OS credential store
+- Only clears HTTPS Git credentials and the provider username pin if the logged-out profile is the currently active one (prevents breaking another profile's auth)
+- Calls `git credential reject` to remove the profile's HTTPS credentials from the OS credential store
+- Unsets `credential.https://<provider-host>.username` so future HTTPS prompts ask for a username instead of reusing the old profile account
 - On macOS this removes the entry from Keychain Access
 - On Windows this removes it from Credential Manager
 - On Linux this removes it from secret-service/KWallet
+- SSH remotes and profile SSH keys are not affected, so Git may still work over SSH after logout
 
 `gcm auth logout` is ownership-aware:
-- Default `--scope gcm` removes only the GCM-managed provider token
+- Default `--scope gcm` removes the GCM-managed provider token and, for the active profile, also clears the credential username pin and rejects any cached credential from Git's helper chain
 - `--scope external` asks Git's credential chain to reject an external credential and requires confirmation unless `--yes` is supplied
 - `--scope all` removes both GCM-owned and external credentials for the selected provider/profile
 - `--dry-run` reports what would be removed without deleting anything
@@ -215,6 +217,7 @@ Provider-aware token files in `~/.gcm/tokens/` are encrypted with **AES-256-GCM*
 - `authenticated:gcm` — GCM owns and can verify the provider token
 - `authenticated:external` — Git can authenticate through a credential GCM does not own
 - `authenticated:mixed` — GCM and external credentials are both present
+- `unauthenticated` — no HTTPS credential is available (SSH key may still exist; shown as `ssh_only` finding)
 - `conflicted` — credentials resolve to different accounts or do not match profile metadata
 - `revoked` / `expired` — GCM-managed token is present but no longer usable
 

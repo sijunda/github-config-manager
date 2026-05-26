@@ -254,6 +254,11 @@ func deleteProviderToken(profileName string, def providerpkg.Definition, p *prof
 	return ctr.TokenStore.DeleteTokenSet(providerTokenKey(profileName, def, account))
 }
 
+func providerTokenPresent(profileName string, def providerpkg.Definition, p *profile.Profile) bool {
+	token, err := loadProviderToken(profileName, def, p)
+	return err == nil && token.AccessToken != ""
+}
+
 func configureGitCredentialsForProvider(profileName string, p *profile.Profile, def providerpkg.Definition, token providerpkg.TokenSet) {
 	server := def.CredentialServer()
 	account := providerAccountForProfile(p, def.ID)
@@ -407,6 +412,10 @@ func setupSSHKeyUploadForProvider(ctx context.Context, profileName string, p *pr
 	}
 	title := providerResourceName(profileName, def, "ssh", keyType)
 	if uploadErr := uploadProviderSSHKey(ctx, def, token, title, publicKey); uploadErr != nil {
+		if providerSSHKeyAlreadyInUse(uploadErr) {
+			printProviderSSHKeyAlreadyInUse(profileName, def)
+			return false
+		}
 		ui.Warning("Could not upload SSH key to %s: %v", def.DisplayName, uploadErr)
 		return false
 	}
@@ -467,6 +476,25 @@ func providerSSHKeyExists(ctx context.Context, def providerpkg.Definition, token
 
 func uploadProviderSSHKey(ctx context.Context, def providerpkg.Definition, token providerpkg.TokenSet, title, publicKey string) error {
 	return ctr.ProviderClient.UploadSSHKey(ctx, def, token, title, publicKey)
+}
+
+func providerSSHKeyAlreadyInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "key is already in use") ||
+		strings.Contains(message, "already in use") ||
+		strings.Contains(message, "has already been taken") ||
+		(strings.Contains(message, "fingerprint") && strings.Contains(message, "already"))
+}
+
+func printProviderSSHKeyAlreadyInUse(profileName string, def providerpkg.Definition) {
+	ui.Warning("This SSH key is already registered on %s, but not on the authenticated account.", def.DisplayName)
+	ui.Print("  %s only allows one owner for each SSH public key.", def.DisplayName)
+	ui.Print("  Remove the key from the other account/repository, or generate a fresh key for this profile:")
+	ui.Print("    gcm ssh generate %s --overwrite", profileName)
+	ui.Print("    gcm ssh upload %s --provider %s", profileName, def.ID)
 }
 
 func deleteProviderSSHKey(ctx context.Context, def providerpkg.Definition, token providerpkg.TokenSet, publicKey string) (bool, error) {

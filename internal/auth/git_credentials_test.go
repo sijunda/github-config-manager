@@ -96,8 +96,8 @@ func TestInspectGitCredentialNoCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InspectGitCredential: %v", err)
 	}
-	if inspection.Credential.Present || inspection.Error == "" {
-		t.Fatalf("expected absent credential with inspection error: %+v", inspection)
+	if inspection.Credential.Present || inspection.Error != "" || inspection.Credential.Error != "" {
+		t.Fatalf("expected absent credential without inspection error: %+v", inspection)
 	}
 }
 

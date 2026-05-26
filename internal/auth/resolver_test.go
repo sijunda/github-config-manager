@@ -33,6 +33,22 @@ func (f fakeTokenStore) DeleteTokenSet(key providerpkg.TokenKey) error {
 	return nil
 }
 
+type failingTokenStore struct {
+	err error
+}
+
+func (f failingTokenStore) LoadTokenSet(providerpkg.TokenKey) (providerpkg.TokenSet, error) {
+	return providerpkg.TokenSet{}, f.err
+}
+
+func (f failingTokenStore) SaveTokenSet(providerpkg.TokenKey, providerpkg.TokenSet) error {
+	return nil
+}
+
+func (f failingTokenStore) DeleteTokenSet(providerpkg.TokenKey) error {
+	return nil
+}
+
 type fakeVerifier map[string]providerclient.AuthenticatedUser
 
 func (f fakeVerifier) VerifyPAT(_ context.Context, _ providerpkg.Definition, token string) (providerclient.AuthenticatedUser, error) {
@@ -105,6 +121,53 @@ func TestResolveExternalOnly(t *testing.T) {
 	}
 	if !status.ExternalCredential.Verified || len(status.Recommendations) == 0 {
 		t.Fatalf("expected verified external credential and adoption recommendation: %+v", status)
+	}
+}
+
+func TestResolveMissingGCMTokenHasNoError(t *testing.T) {
+	def := testDefinition()
+	p := testProfile()
+	manager := &Manager{TokenStore: fakeTokenStore{tokens: map[providerpkg.TokenKey]providerpkg.TokenSet{}}}
+
+	status, err := manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if status.GCMCredential.Present || status.GCMCredential.Error != "" {
+		t.Fatalf("missing token should be absent without error: %+v", status.GCMCredential)
+	}
+	if !isTokenMissingError(fmt.Errorf("secret does not exist")) || isTokenMissingError(fmt.Errorf("permission denied")) || isTokenMissingError(nil) {
+		t.Fatal("unexpected missing-token error classification")
+	}
+
+	manager.TokenStore = failingTokenStore{err: fmt.Errorf("permission denied")}
+	status, err = manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def})
+	if err != nil {
+		t.Fatalf("Resolve with failing store: %v", err)
+	}
+	if status.GCMCredential.Error != "permission denied" {
+		t.Fatalf("expected non-missing token error to be preserved: %+v", status.GCMCredential)
+	}
+}
+
+func TestResolvePinnedGitCredentialUsernameWithoutHTTPSCredential(t *testing.T) {
+	def := testDefinition()
+	p := testProfile()
+	manager := &Manager{
+		TokenStore: fakeTokenStore{tokens: map[providerpkg.TokenKey]providerpkg.TokenSet{}},
+		ExternalInspector: fakeExternalInspector{inspection: GitCredentialInspection{
+			Credential:         CredentialStatus{Type: "https", Source: SourceUnknown, Ownership: OwnershipUnknown, State: StateUnauthenticated, Host: "github.com", Username: "octo"},
+			ConfiguredUsername: "octo",
+			GCMConfigured:      true,
+		}},
+	}
+
+	status, err := manager.Resolve(context.Background(), ResolveRequest{ProfileName: "work", Profile: p, Provider: def, InspectExternal: true})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if status.GitCredentialUsername != "octo" || !status.hasFinding("credential_username_pinned") {
+		t.Fatalf("expected pinned username finding: %+v", status)
 	}
 }
 
@@ -388,7 +451,7 @@ func TestResolveSSHAndGPGCapabilities(t *testing.T) {
 	}
 }
 
-func TestResolveSSHOnlyPartialAndNilSSH(t *testing.T) {
+func TestResolveSSHOnlyUnauthenticatedAndNilSSH(t *testing.T) {
 	def := testDefinition()
 	tmp := t.TempDir()
 	keyPath := tmp + "/id_gcm_github_work"
@@ -402,8 +465,14 @@ func TestResolveSSHOnlyPartialAndNilSSH(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if status.State != StatePartial || status.SSHCredential.State != StatePartial {
-		t.Fatalf("expected ssh-only partial status: %+v", status)
+	if status.State != StateUnauthenticated || status.SSHCredential.State != StatePartial {
+		t.Fatalf("expected unauthenticated overall with ssh partial: state=%s ssh=%s", status.State, status.SSHCredential.State)
+	}
+	if !status.hasFinding("ssh_only") {
+		t.Fatalf("expected ssh_only finding: %+v", status.Findings)
+	}
+	if status.Username != "" {
+		t.Fatalf("expected empty username when no HTTPS credential: %q", status.Username)
 	}
 	if got := inspectSSHCredential(nil); got.State != StateUnauthenticated {
 		t.Fatalf("nil ssh status = %+v", got)

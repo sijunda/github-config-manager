@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -89,6 +91,26 @@ func TestRunAuthStatusUsesSourceAwareResolver(t *testing.T) {
 	}
 }
 
+func TestRunAuthStatusUnauthenticatedHidesUsername(t *testing.T) {
+	c := withRepairTestContainer(t)
+	createAuthTestProfile(t, "logged-out", providerpkg.GitHubID, "octo")
+	manager := authsvc.NewManager(c.TokenStore, cliAuthFakeVerifier{})
+	manager.ExternalInspector = &cliAuthFakeInspector{}
+	withAuthManagerFactory(t, manager)
+
+	output := captureStdout(t, func() {
+		if err := runAuthStatus(context.Background(), "logged-out", authStatusOptions{verbose: true}); err != nil {
+			t.Fatalf("runAuthStatus: %v", err)
+		}
+	})
+	if strings.Contains(output, "octo") {
+		t.Fatalf("unauthenticated profile should not display username:\n%s", output)
+	}
+	if !strings.Contains(output, "unauthenticated") {
+		t.Fatalf("expected unauthenticated state:\n%s", output)
+	}
+}
+
 func TestRunAuthAdoptDryRunDoesNotMutateProfile(t *testing.T) {
 	c := withRepairTestContainer(t)
 	createAuthTestProfile(t, "work", "", "")
@@ -158,6 +180,115 @@ func TestRunAuthLogoutIgnoresGCMHelperCredentialAsExternal(t *testing.T) {
 	}
 	if !strings.Contains(output, "No external credential owned by another tool was found.") {
 		t.Fatalf("missing no-external message:\n%s", output)
+	}
+}
+
+func TestRunAuthLogoutScopeAllReportsMissingGCMToken(t *testing.T) {
+	c := withRepairTestContainer(t)
+	profileName := "absent-auth-token"
+	createAuthTestProfile(t, profileName, providerpkg.GitHubID, "octo")
+	manager := authsvc.NewManager(c.TokenStore, cliAuthFakeVerifier{})
+	manager.ExternalInspector = &cliAuthFakeInspector{}
+	withAuthManagerFactory(t, manager)
+
+	output := captureStdout(t, func() {
+		if err := runAuthLogout(context.Background(), profileName, authLogoutOptions{scope: "all", yes: true}); err != nil {
+			t.Fatalf("runAuthLogout: %v", err)
+		}
+	})
+	if !strings.Contains(output, "No GCM-managed GitHub token was found for \""+profileName+"\".") {
+		t.Fatalf("missing absent GCM token message:\n%s", output)
+	}
+}
+
+func TestRunAuthLogoutActiveProfileClearsCredentialsAndRejects(t *testing.T) {
+	gitConfig := filepath.Join(t.TempDir(), "gitconfig")
+	t.Setenv("GIT_CONFIG_GLOBAL", gitConfig)
+	c := withRepairTestContainer(t)
+	profileName := "active-logout"
+	p := createAuthTestProfile(t, profileName, providerpkg.GitHubID, "octo")
+	if err := c.ProfileSwitcher.Activate(profileName, profile.ScopeGlobal); err != nil {
+		t.Fatalf("activate profile: %v", err)
+	}
+	def, ok := c.ProviderRegistry.Get(providerpkg.GitHubID)
+	if !ok {
+		t.Fatal("github provider missing")
+	}
+	if err := saveProviderToken(profileName, def, p, providerpkg.TokenSet{AccessToken: "token", AuthMethod: providerpkg.AuthMethodPAT}); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	if err := c.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "octo"); err != nil {
+		t.Fatalf("set credential username: %v", err)
+	}
+	inspector := &cliAuthFakeInspector{}
+	manager := authsvc.NewManager(c.TokenStore, cliAuthFakeVerifier{"token": {Username: "octo"}})
+	manager.ExternalInspector = inspector
+	withAuthManagerFactory(t, manager)
+
+	output := captureStdout(t, func() {
+		if err := runAuthLogout(context.Background(), profileName, authLogoutOptions{scope: "gcm"}); err != nil {
+			t.Fatalf("runAuthLogout: %v", err)
+		}
+	})
+	if !strings.Contains(output, "GCM-managed GitHub token removed") {
+		t.Fatalf("missing token removal message:\n%s", output)
+	}
+	if !inspector.rejected {
+		t.Fatal("expected RejectGitCredential to be called for active profile")
+	}
+	if out, err := exec.Command("git", "config", "--global", "--get", "credential.https://github.com.username").CombinedOutput(); err == nil {
+		t.Fatalf("credential username still configured: %q", out)
+	}
+}
+
+func TestGitHubLogoutReportsMissingToken(t *testing.T) {
+	withRepairTestContainer(t)
+	profileName := "absent-github-token"
+	createAuthTestProfile(t, profileName, providerpkg.GitHubID, "octo")
+
+	output := captureStdout(t, func() {
+		if err := runRootCommand(t, "github", "logout", profileName, "--force", "--clear-credentials=false"); err != nil {
+			t.Fatalf("github logout: %v", err)
+		}
+	})
+	if !strings.Contains(output, "No GitHub token was stored for profile \""+profileName+"\".") {
+		t.Fatalf("missing absent GitHub token message:\n%s", output)
+	}
+	if strings.Contains(output, "GitHub token removed") {
+		t.Fatalf("logout should not claim removal when token is absent:\n%s", output)
+	}
+}
+
+func TestGitHubLogoutClearsCredentialUsernamePin(t *testing.T) {
+	gitConfig := filepath.Join(t.TempDir(), "gitconfig")
+	t.Setenv("GIT_CONFIG_GLOBAL", gitConfig)
+	c := withRepairTestContainer(t)
+	profileName := "logout-pin"
+	p := createAuthTestProfile(t, profileName, providerpkg.GitHubID, "octo")
+	if err := c.ProfileSwitcher.Activate(profileName, profile.ScopeGlobal); err != nil {
+		t.Fatalf("activate profile: %v", err)
+	}
+	def, ok := c.ProviderRegistry.Get(providerpkg.GitHubID)
+	if !ok {
+		t.Fatal("github provider missing")
+	}
+	if err := saveProviderToken(profileName, def, p, providerpkg.TokenSet{AccessToken: "token", AuthMethod: providerpkg.AuthMethodPAT}); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	if err := c.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "octo"); err != nil {
+		t.Fatalf("set credential username: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runRootCommand(t, "github", "logout", profileName); err != nil {
+			t.Fatalf("github logout: %v", err)
+		}
+	})
+	if !strings.Contains(output, "username pin cleared") {
+		t.Fatalf("missing username pin cleanup output:\n%s", output)
+	}
+	if out, err := exec.Command("git", "config", "--global", "--get", "credential.https://github.com.username").CombinedOutput(); err == nil {
+		t.Fatalf("credential username still configured: %q", out)
 	}
 }
 

@@ -320,14 +320,22 @@ func runAuthLogout(ctx context.Context, profileName string, opts authLogoutOptio
 	}
 
 	if scope == "gcm" || scope == "all" {
-		if err := deleteProviderToken(profileName, def, p); err != nil && status.GCMCredential.Present {
-			return fmt.Errorf("could not remove GCM-managed token for %q: %w", profileName, err)
+		if status.GCMCredential.Present {
+			if err := deleteProviderToken(profileName, def, p); err != nil {
+				return fmt.Errorf("could not remove GCM-managed token for %q: %w", profileName, err)
+			}
+			if def.ID == providerpkg.GitHubID {
+				_ = ctr.GitHubClient.DeleteToken(profileName)
+			}
+			ctr.AuditLogger.Log(audit.ActionProviderLogout, profileName, map[string]string{"provider": string(def.ID), "scope": "gcm"}, nil)
+			ui.Success("GCM-managed %s token removed for %q", def.DisplayName, profileName)
+		} else {
+			ui.Info("No GCM-managed %s token was found for %q.", def.DisplayName, profileName)
 		}
-		if def.ID == providerpkg.GitHubID {
-			_ = ctr.GitHubClient.DeleteToken(profileName)
+		if isActiveProfile(profileName) {
+			_ = ctr.GitHubClient.SetGitCredentialUsername(def.CredentialServer(), "")
+			_ = authManager().ExternalInspector.RejectGitCredential(ctx, def, providerAccountForProfile(p, def.ID).Username)
 		}
-		ctr.AuditLogger.Log(audit.ActionProviderLogout, profileName, map[string]string{"provider": string(def.ID), "scope": "gcm"}, nil)
-		ui.Success("GCM-managed %s token removed for %q", def.DisplayName, profileName)
 	}
 
 	if scope == "external" || scope == "all" {
@@ -606,6 +614,9 @@ func printAuthInspect(status authsvc.ProfileAuthStatus) {
 	ui.Blank()
 	ui.Detail("Provider", firstNonEmptyString(status.ProviderName, string(status.Provider), "-"))
 	ui.Detail("Host", firstNonEmptyString(status.Host, "-"))
+	if status.GitCredentialUsername != "" {
+		ui.Detail("Git Credential Username", status.GitCredentialUsername)
+	}
 	ui.Detail("State", string(status.State))
 	ui.Detail("Ownership", string(status.Ownership))
 	ui.Detail("Username", firstNonEmptyString(status.Username, "-"))
