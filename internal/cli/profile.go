@@ -102,6 +102,11 @@ Examples:
 			if fromTemplate != "" {
 				ui.Detail("Template", fromTemplate)
 			}
+
+			// If this is the only profile, activate as global default automatically
+			if activated := activateIfOnlyProfile(profileName); activated {
+				return nil
+			}
 			ui.NextSteps([]string{
 				fmt.Sprintf("Generate SSH key: gcm ssh generate %s", profileName),
 				fmt.Sprintf("Activate profile: gcm use %s", profileName),
@@ -245,12 +250,35 @@ func profileCreateInteractive(profileName string, fromTemplate string) error {
 
 	ui.Blank()
 	ui.Success("Profile %q created and configured!", profileName)
+
+	// If this is the only profile, activate as global default automatically
+	if activated := activateIfOnlyProfile(profileName); activated {
+		return nil
+	}
 	ui.NextSteps([]string{
 		fmt.Sprintf("Activate it now: gcm use %s", profileName),
 		"Create more profiles: gcm profile create <name> -i",
 	})
 
 	return nil
+}
+
+// activateIfOnlyProfile activates the profile as global default if it is
+// the only profile in the system. Returns true if activation was performed.
+func activateIfOnlyProfile(profileName string) bool {
+	allProfiles, _ := ctr.ProfileManager.List()
+	if len(allProfiles) != 1 {
+		return false
+	}
+	if ctr.Config.DefaultProfile != "" {
+		return false
+	}
+	if err := ctr.ProfileSwitcher.Activate(profileName, profile.ScopeGlobal); err != nil {
+		ui.Warning("Could not activate globally: %v", err)
+		return false
+	}
+	ui.Success("Profile %q set as global default (only profile)", profileName)
+	return true
 }
 
 func newProfileListCmd() *cobra.Command {

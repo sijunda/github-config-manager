@@ -1150,6 +1150,56 @@ func TestAdditionalCommandBranches(t *testing.T) {
 	}
 }
 
+func TestActivateIfOnlyProfile(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+
+	t.Run("first profile auto-activates", func(t *testing.T) {
+		original := ctr
+		t.Cleanup(func() { ctr = original })
+		ctr = newRepairTestContainer(t)
+
+		p := repairTestProfile("solo")
+		if err := ctr.ProfileManager.Create(p); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		captureStdout(t, func() {
+			if !activateIfOnlyProfile("solo") {
+				t.Fatal("expected activateIfOnlyProfile to return true")
+			}
+		})
+	})
+
+	t.Run("second profile does not auto-activate", func(t *testing.T) {
+		original := ctr
+		t.Cleanup(func() { ctr = original })
+		ctr = newRepairTestContainer(t)
+
+		if err := ctr.ProfileManager.Create(repairTestProfile("first")); err != nil {
+			t.Fatalf("create first: %v", err)
+		}
+		if err := ctr.ProfileManager.Create(repairTestProfile("second")); err != nil {
+			t.Fatalf("create second: %v", err)
+		}
+		if activateIfOnlyProfile("second") {
+			t.Fatal("should not activate when multiple profiles exist")
+		}
+	})
+
+	t.Run("does not activate if default already set", func(t *testing.T) {
+		original := ctr
+		t.Cleanup(func() { ctr = original })
+		ctr = newRepairTestContainer(t)
+		ctr.Config.DefaultProfile = "existing"
+
+		if err := ctr.ProfileManager.Create(repairTestProfile("only")); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if activateIfOnlyProfile("only") {
+			t.Fatal("should not activate when DefaultProfile is already set")
+		}
+	})
+}
+
 func TestNonInteractiveCommandRunPaths(t *testing.T) {
 	original := ctr
 	t.Cleanup(func() { ctr = original })
